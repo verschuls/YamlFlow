@@ -1,6 +1,6 @@
 # YamlFlow
 
-Reactive YAML config management with hash-based reloading and async callbacks.
+Lightweight wrapper for [ConfigLib](https://github.com/Exlll/ConfigLib) with centralized config management
 
 ## Requirements
 
