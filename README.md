@@ -9,16 +9,33 @@ Reactive YAML config management with hash-based reloading and async callbacks.
 
 ## Installation
 
-```bash
-mvn clean install
-```
+### Maven
 
 ```xml
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+
 <dependency>
-    <groupId>me.verschuls.ylf</groupId>
-    <artifactId>yamlflow</artifactId>
-    <version>1.0</version>
+    <groupId>com.github.verschuls</groupId>
+    <artifactId>YamlFlow</artifactId>
+    <version>v1.0.0</version>
 </dependency>
+```
+
+### Gradle
+
+```groovy
+repositories {
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    implementation 'com.github.verschuls:YamlFlow:v1.0.0'
+}
 ```
 
 ## Features
