@@ -6,7 +6,7 @@
 
     <groupId>me.verschuls.ylf</groupId>
     <artifactId>yamlflow</artifactId>
-    <version>1.0</version>
+    <version>1.1.0</version>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
