@@ -22,7 +22,7 @@ Lightweight wrapper for [ConfigLib](https://github.com/Exlll/ConfigLib) with cen
 <dependency>
     <groupId>com.github.verschuls</groupId>
     <artifactId>YamlFlow</artifactId>
-    <version>v1.0.0</version>
+    <version>v1.1.0</version>
 </dependency>
 ```
 
@@ -34,7 +34,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.verschuls:YamlFlow:v1.0.0'
+    implementation 'com.github.verschuls:YamlFlow:v1.1.0'
 }
 ```
 
@@ -92,13 +92,16 @@ public class PlayerData {
     public int level = 1;
 }
 
-CMI<String, PlayerData> players = new CMI<>(
-    Path.of("./players"),
-    PlayerData.class,
-    CIdentifier.fileName(),
-    CFilter.none(),
-    executor
-);
+// Using the builder pattern
+CMI<String, PlayerData> players = CMI.newBuilder(
+        Path.of("./players"),
+        PlayerData.class,
+        CIdentifier.fileName()
+    )
+    .filter(CFilter.underScores())
+    .executor(executor)
+    .inputNulls(true)
+    .build();
 
 // Access configs
 Optional<PlayerData> player = players.get("steve");
@@ -113,6 +116,20 @@ players.save("alex", newPlayer);
 players.reload();
 players.onReload(all -> System.out.println("Reloaded " + all.size() + " players"));
 ```
+
+### Builder Options
+
+| Method | Description |
+|--------|-------------|
+| `filter(CFilter)` | Exclude files from loading |
+| `executor(Executor)` | Executor for async init callback |
+| `inputNulls(boolean)` | Allow null values from YAML |
+| `outputNulls(boolean)` | Write null values to YAML |
+| `acceptNulls(boolean)` | Shorthand for both inputNulls and outputNulls |
+| `addSerializer(Class, Serializer)` | Custom type serializer |
+| `addSerializerFactory(Class, Function)` | Context-aware serializer factory |
+| `setFieldFilter(FieldFilter)` | Control which fields are serialized |
+| `setNameFormatter(NameFormatter)` | Custom field-to-YAML-key naming |
 
 ## CIdentifier - Key Strategies
 
@@ -173,7 +190,7 @@ value: default
 ## Coming Soon
 
 - **Versioning** - Config migration between versions
-- **CMI Builder** - Fluent builder pattern for CMI configuration
+- ~~**CMI Builder** - Fluent builder pattern for CMI configuration~~
 - **Async CMI** - Non-blocking bulk config loading
 - **Optimizations** - Performance improvements
 - ...and more
