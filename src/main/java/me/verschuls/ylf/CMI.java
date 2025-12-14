@@ -1,8 +1,6 @@
 package me.verschuls.ylf;
 
-import de.exlll.configlib.Configuration;
-import de.exlll.configlib.YamlConfigurationProperties;
-import de.exlll.configlib.YamlConfigurations;
+import de.exlll.configlib.*;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,15 +8,32 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
  * Instance-based config manager for bulk loading YAML files from a directory.
  * Unlike {@link CM}, loads multiple files using the same data class.
  *
- * @param <DataKey>   key type for identifying configs
- * @param <DataClass> the data class for parsing
+ * <p>Use the {@link Builder} to construct instances with customizable options
+ * for filtering, serialization, and null handling.</p>
+ *
+ * <pre>{@code
+ * CMI<String, PlayerData> players = CMI.newBuilder(
+ *         Path.of("./players"),
+ *         PlayerData.class,
+ *         CIdentifier.fileName()
+ *     )
+ *     .filter(CFilter.underScores())
+ *     .executor(executor)
+ *     .build();
+ * }</pre>
+ *
+ * @param <DataKey>   key type for identifying configs (e.g., String, UUID, Integer)
+ * @param <DataClass> the config data class (must have {@code @Configuration} annotation)
  * @see CM
+ * @see CIdentifier
+ * @see CFilter
  */
 public class CMI<DataKey, DataClass> {
 
@@ -34,32 +49,43 @@ public class CMI<DataKey, DataClass> {
     private final YamlConfigurationProperties properties;
 
     /**
-     * Loads all .yml files from a directory. Creates directory if missing.
+     * Private constructor. Use {@link #newBuilder(Path, Class, CIdentifier)} to create instances.
      *
-     * @param path       directory containing YAML files
-     * @param parseClass data class (must have @Configuration)
-     * @param identifier key generator for each config
-     * @param filter     filter to exclude files (return true to skip)
-     * @param executor   executor for async init callback
-     * @throws IOException if loading fails
+     * @param builder the builder containing configuration options
+     * @throws IOException if directory creation or file loading fails
      */
-    public CMI(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier, CFilter<DataClass> filter, Executor executor) throws IOException {
-        if (!parseClass.isAnnotationPresent(Configuration.class)) {
+    private CMI(Builder<DataKey, DataClass> builder) throws IOException {
+        if (!builder.parseClass.isAnnotationPresent(Configuration.class)) {
             throw new RuntimeException("Data class in CMI must annotate Configuration from exlll ConfigLib");
         }
-        this.parseClass = parseClass;
-        YamlConfigurationProperties.Builder<?> builder = YamlConfigurationProperties.newBuilder().outputNulls(true).inputNulls(true);
+        this.parseClass = builder.parseClass;
+        YamlConfigurationProperties.Builder<?> properties = builder.properties;
         if (parseClass.isAnnotationPresent(Header.class))
-            builder.header(parseClass.getAnnotation(Header.class).value());
+            properties.header(parseClass.getAnnotation(Header.class).value());
         if (parseClass.isAnnotationPresent(Footer.class))
-            builder.footer(parseClass.getAnnotation(Footer.class).value());
-        this.properties = builder.build();
-        this.identifier = identifier;
-        this.filter = filter;
-        this.path = path;
+            properties.footer(parseClass.getAnnotation(Footer.class).value());
+        this.properties = properties.build();
+        this.identifier = builder.identifier;
+        this.filter = builder.filter;
+        this.path = builder.path;
         if (Files.notExists(path)) Files.createDirectory(path);
         load();
-        init.completeAsync(this::get, executor);
+        if (builder.executor != null) init.completeAsync(this::get, builder.executor);
+        else init.completeAsync(this::get);
+    }
+
+    /**
+     * Creates a new builder for constructing a CMI instance.
+     *
+     * @param path       directory containing YAML config files
+     * @param parseClass the config data class (must have {@code @Configuration} annotation)
+     * @param identifier strategy for generating keys from files
+     * @param <DataKey>   key type for identifying configs
+     * @param <DataClass> the config data class type
+     * @return a new builder instance
+     */
+    public static <DataKey, DataClass> Builder<DataKey, DataClass> newBuilder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
+        return new Builder<>(path, parseClass, identifier);
     }
 
     private synchronized void load() throws IOException {
@@ -77,28 +103,38 @@ public class CMI<DataKey, DataClass> {
     }
 
     /**
-     * Future that completes when all configs are loaded.
+     * Returns a future that completes when all configs are initially loaded.
+     *
+     * @return future containing a snapshot of all loaded configs
      */
     public CompletableFuture<HashMap<DataKey, DataClass>> onInit() {
         return init;
     }
 
     /**
-     * Returns a snapshot of all loaded configs.
+     * Returns a snapshot of all currently loaded configs.
+     *
+     * @return a new HashMap containing all loaded configs
      */
     public HashMap<DataKey, DataClass> get() {
         return new HashMap<>(configs);
     }
 
     /**
-     * Gets a config by key.
+     * Gets a config by its key.
+     *
+     * @param key the key identifying the config
+     * @return an Optional containing the config, or empty if not found
      */
     public Optional<DataClass> get(DataKey key) {
         return Optional.ofNullable(configs.get(key));
     }
 
     /**
-     * Finds all configs matching a predicate.
+     * Finds all configs matching the given predicate.
+     *
+     * @param predicate condition to test each config
+     * @return list of configs that match the predicate
      */
     public List<DataClass> getWhere(Predicate<DataClass> predicate) {
         List<DataClass> dataList = new ArrayList<>();
@@ -109,7 +145,12 @@ public class CMI<DataKey, DataClass> {
     }
 
     /**
-     * Creates or gets a config. Creates file if missing.
+     * Creates or retrieves a config. If the key doesn't exist, creates a new file
+     * with default values and registers it.
+     *
+     * @param key  the key to identify the config
+     * @param name the file name without .yml extension
+     * @return the existing or newly created config instance
      */
     public DataClass create(DataKey key, String name) {
         Path path = this.path.resolve(name+".yml");
@@ -119,7 +160,10 @@ public class CMI<DataKey, DataClass> {
     }
 
     /**
-     * Saves a config to disk.
+     * Saves a config to disk. Only saves if the key exists in the manager.
+     *
+     * @param key  the key identifying the config
+     * @param data the config data to save
      */
     public void save(DataKey key, DataClass data) {
         if (!configs.containsKey(key)) return;
@@ -128,7 +172,10 @@ public class CMI<DataKey, DataClass> {
     }
 
     /**
-     * Reloads all configs from directory. Clears and rescans.
+     * Reloads all configs from the directory. Clears current configs and rescans
+     * the directory, then notifies all registered reload callbacks.
+     *
+     * @throws RuntimeException if reloading fails
      */
     public synchronized void reload() {
         try {
@@ -142,10 +189,161 @@ public class CMI<DataKey, DataClass> {
     }
 
     /**
-     * Registers a reload callback.
+     * Registers a callback to be invoked after each reload.
+     *
+     * @param consumer callback receiving a snapshot of all configs after reload
      */
     public void onReload(Consumer<HashMap<DataKey, DataClass>> consumer) {
         reload.add(consumer);
     }
 
+
+    /**
+     * Builder for constructing {@link CMI} instances with customizable options.
+     *
+     * <p>Provides fluent methods for configuring filtering, executors, null handling,
+     * custom serializers, field filters, and name formatters.</p>
+     *
+     * <pre>{@code
+     * CMI<String, PlayerData> players = CMI.newBuilder(path, PlayerData.class, CIdentifier.fileName())
+     *     .filter(CFilter.underScores())
+     *     .executor(executor)
+     *     .inputNulls(true)
+     *     .addSerializer(UUID.class, new UUIDSerializer())
+     *     .build();
+     * }</pre>
+     *
+     * @param <DataKey>   key type for identifying configs
+     * @param <DataClass> the config data class type
+     */
+    public static class Builder<DataKey, DataClass> {
+
+        private final Path path;
+        private final Class<DataClass> parseClass;
+        private final CIdentifier<DataKey, DataClass> identifier;
+        private CFilter<DataClass> filter = CFilter.none();
+        private Executor executor;
+        private final YamlConfigurationProperties.Builder<?> properties = YamlConfigurationProperties.newBuilder();
+
+        private Builder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
+            this.path = path;
+            this.parseClass = parseClass;
+            this.identifier = identifier;
+        }
+
+        /**
+         * Sets the filter for excluding files from loading.
+         *
+         * @param filter the filter to apply (return true to exclude)
+         * @return this builder
+         * @see CFilter
+         */
+        public Builder<DataKey, DataClass> filter(CFilter<DataClass> filter) {
+            this.filter = filter;
+            return this;
+        }
+
+        /**
+         * Sets the executor for async initialization callback.
+         *
+         * @param executor the executor for running async callbacks
+         * @return this builder
+         */
+        public Builder<DataKey, DataClass> executor(Executor executor) {
+            this.executor = executor;
+            return this;
+        }
+
+        /**
+         * Configures whether null values from YAML are set on config fields.
+         *
+         * @param inputNulls true to allow null values from YAML
+         * @return this builder
+         */
+        public Builder<DataKey, DataClass> inputNulls(boolean inputNulls) {
+            this.properties.inputNulls(inputNulls);
+            return this;
+        }
+
+        /**
+         * Configures whether null field values are written to YAML.
+         *
+         * @param outputNulls true to write null values to YAML
+         * @return this builder
+         */
+        public Builder<DataKey, DataClass> outputNulls(boolean outputNulls) {
+            this.properties.outputNulls(outputNulls);
+            return this;
+        }
+
+        /**
+         * Convenience method to set both inputNulls and outputNulls.
+         *
+         * @param acceptNulls true to allow nulls in both directions
+         * @return this builder
+         */
+        public Builder<DataKey, DataClass> acceptNulls(boolean acceptNulls) {
+            this.properties.outputNulls(acceptNulls);
+            this.properties.inputNulls(acceptNulls);
+            return this;
+        }
+
+        /**
+         * Adds a custom serializer for a specific type.
+         *
+         * @param serializedType the class type to serialize
+         * @param serializer     the serializer instance
+         * @param <T>            the type being serialized
+         * @return this builder
+         */
+        public <T> Builder<DataKey, DataClass> addSerializer(Class<T> serializedType, Serializer<? super T, ?> serializer) {
+            this.properties.addSerializer(serializedType, serializer);
+            return this;
+        }
+
+        /**
+         * Adds a serializer factory for context-aware serialization.
+         *
+         * @param serializedType    the class type to serialize
+         * @param serializerFactory factory that creates serializers with context
+         * @param <T>               the type being serialized
+         * @return this builder
+         */
+        public <T> Builder<DataKey, DataClass> addSerializerFactory(Class<T> serializedType, Function<? super SerializerContext, ? extends Serializer<T, ?>> serializerFactory) {
+            this.properties.addSerializerFactory(serializedType, serializerFactory);
+            return this;
+        }
+
+        /**
+         * Sets a filter to control which fields are included in serialization.
+         *
+         * @param filter the field filter
+         * @return this builder
+         */
+        public Builder<DataKey, DataClass> setFieldFilter(FieldFilter filter) {
+            this.properties.setFieldFilter(filter);
+            return this;
+        }
+
+        /**
+         * Sets a formatter for converting field names to YAML keys.
+         *
+         * @param formatter the name formatter
+         * @return this builder
+         */
+        public Builder<DataKey, DataClass> setNameFormatter(NameFormatter formatter) {
+            this.properties.setNameFormatter(formatter);
+            return this;
+        }
+
+        /**
+         * Builds the CMI instance. Loads all matching YAML files from the directory.
+         *
+         * @return the constructed CMI instance
+         * @throws IOException if directory creation or file loading fails
+         */
+        public CMI<DataKey, DataClass> build() throws IOException {
+            return new CMI<>(this);
+        }
+    }
 }
