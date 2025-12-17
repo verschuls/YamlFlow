@@ -6,7 +6,7 @@
 
     <groupId>me.verschuls.ylf</groupId>
     <artifactId>yamlflow</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -19,12 +19,6 @@
             <groupId>de.exlll</groupId>
             <artifactId>configlib-yaml</artifactId>
             <version>4.6.4</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.snakeyaml</groupId>
-                    <artifactId>snakeyaml-engine</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
     </dependencies>
 

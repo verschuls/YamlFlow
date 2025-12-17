@@ -5,6 +5,7 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 /**
@@ -18,20 +19,43 @@ public class CM {
     private static final Map<Class<?>, CompletableFuture<BaseConfig.Data>> queueInit = new ConcurrentHashMap<>();
     private static final Map<Class<?>, Queue<Consumer<BaseConfig.Data>>> queueReload = new ConcurrentHashMap<>();
 
+    private static VersionCompare versionCompare = VersionCompare.basic();
+
+    /**
+     * Sets a custom version comparator for all config version checks.
+     *
+     * @param comparator the version comparator to use
+     * @see VersionCompare
+     */
+    public static void setVersionComparator(VersionCompare comparator) {
+        versionCompare = comparator;
+    }
+
+    /**
+     * Returns the currently configured version comparator.
+     *
+     * @return the active version comparator
+     */
+    static VersionCompare getVersionCompare() {
+        return versionCompare;
+    }
+
     /**
      * Registers a config. Executes queued init/reload callbacks once loaded.
      *
      * @param config the config instance to register
      */
     public static <T extends BaseConfig<?>> void register(T config) {
-        config.onInit().thenAcceptAsync(cfg->{
+        Consumer<BaseConfig<?>> handler = cfg-> {
             CompletableFuture<BaseConfig.Data> future = queueInit.remove(cfg.getClass());
             if (future != null) future.complete(cfg.get());
             if (queueReload.containsKey(cfg.getClass())) {
                 Queue<Consumer<BaseConfig.Data>> reload = queueReload.get(cfg.getClass());
                 while (!reload.isEmpty()) cfg.onReload(reload.poll());
             }
-        }, config.getExecutor());
+        };
+        if (config.getExecutor() == null) config.onInit().thenAcceptAsync(handler);
+        else config.onInit().thenAcceptAsync(handler, config.getExecutor());
         configs.put(config.getClass(), config);
     }
 
@@ -52,7 +76,10 @@ public class CM {
     @SuppressWarnings("unchecked")
     public static <D extends BaseConfig.Data> CompletableFuture<D> onInit(Class<? extends BaseConfig<D>> config) {
         BaseConfig<D> cfg = (BaseConfig<D>) configs.get(config);
-        if (cfg != null) return cfg.onInit().thenApplyAsync(BaseConfig::get, cfg.getExecutor());
+        if (cfg != null) {
+            if (cfg.getExecutor() == null) return cfg.onInit().thenApplyAsync(BaseConfig::get);
+            return cfg.onInit().thenApplyAsync(BaseConfig::get, cfg.getExecutor());
+        }
         else return (CompletableFuture<D>) queueInit.computeIfAbsent(config, k -> new CompletableFuture<>());
     }
 
