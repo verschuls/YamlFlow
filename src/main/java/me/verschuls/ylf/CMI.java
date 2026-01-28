@@ -35,7 +35,7 @@ import java.util.function.Predicate;
  * @see CIdentifier
  * @see CFilter
  */
-public class CMI<DataKey, DataClass> {
+public final class CMI<DataKey, DataClass extends BaseData> {
 
     private final Map<DataKey, DataClass> configs = new ConcurrentHashMap<>();
     private final Map<DataKey, Path> paths = new ConcurrentHashMap<>();
@@ -45,6 +45,8 @@ public class CMI<DataKey, DataClass> {
     private final Class<DataClass> parseClass;
     private final CIdentifier<DataKey, DataClass> identifier;
     private final CFilter<DataClass> filter;
+    private String configVersion;
+    private Executor executor;
 
     private final YamlConfigurationProperties properties;
 
@@ -59,19 +61,34 @@ public class CMI<DataKey, DataClass> {
             throw new RuntimeException("Data class in CMI must annotate Configuration from exlll ConfigLib");
         }
         this.parseClass = builder.parseClass;
+        this.executor = builder.executor;
         YamlConfigurationProperties.Builder<?> properties = builder.properties;
         if (parseClass.isAnnotationPresent(Header.class))
             properties.header(parseClass.getAnnotation(Header.class).value());
         if (parseClass.isAnnotationPresent(Footer.class))
             properties.footer(parseClass.getAnnotation(Footer.class).value());
+        if (parseClass.isAnnotationPresent(CVersion.class))
+            configVersion = parseClass.getAnnotation(CVersion.class).value();
+        builder.setFieldFilter(field -> !(field.getName().equals("version") && configVersion == null));
         this.properties = properties.build();
         this.identifier = builder.identifier;
         this.filter = builder.filter;
         this.path = builder.path;
         if (Files.notExists(path)) Files.createDirectory(path);
-        load();
-        if (builder.executor != null) init.completeAsync(this::get, builder.executor);
-        else init.completeAsync(this::get);
+
+        if (builder.async) {
+            CompletableFuture.runAsync(this::loadAsync)
+                    .thenRun(() -> init.complete(new HashMap<>(configs)))
+                    .exceptionally(ex -> {
+                       ex.printStackTrace();
+                       init.completeExceptionally(ex);
+                        return null;
+                    });
+        } else {
+            load();
+            if (builder.executor != null) init.completeAsync(this::get, builder.executor);
+            else init.completeAsync(this::get);
+        }
     }
 
     /**
@@ -84,8 +101,8 @@ public class CMI<DataKey, DataClass> {
      * @param <DataClass> the config data class type
      * @return a new builder instance
      */
-    public static <DataKey, DataClass> Builder<DataKey, DataClass> newBuilder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
-        return new Builder<>(path, parseClass, identifier);
+    public static <DataKey, DataClass extends BaseData> Builder<DataKey, DataClass> newBuilder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier, boolean async) {
+        return new Builder<>(path, parseClass, identifier, async);
     }
 
     private synchronized void load() throws IOException {
@@ -99,6 +116,77 @@ public class CMI<DataKey, DataClass> {
                             paths.put(id, yaml);
                         }
                     });
+        }
+    }
+
+    /*private T load() {
+        if (!Files.exists(file)) return update();
+        if (configVersion == null)
+            return YamlConfigurations.update(file, dataClass, properties);
+        String fileVersion;
+        try {
+            fileVersion = YLUtils.getVersion(file);
+        } catch (IOException e) {
+            throw new RuntimeException("Wasn't able to find version",e);
+        }
+        if (CM.getVersionCompare().compare(fileVersion, configVersion)) return update();
+        try {
+            Files.copy(file, path.resolve(name+"-v"+fileVersion+"-"+ UUID.randomUUID().toString().substring(0, 4)+".yml"));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return update();
+    }
+
+    private T update() {
+        if (configVersion == null)
+            return YamlConfigurations.update(file, dataClass, properties);
+        T data = YamlConfigurations.update(file, dataClass, properties);
+        data.version = configVersion;
+        YamlConfigurations.save(file, dataClass, data, properties);
+        return data;
+    }*/
+
+    private record YAMLInfo<DataKey, DataClass extends BaseData>(DataKey dataKey, DataClass dataClass, Path path) {}
+
+    private YAMLInfo<DataKey, DataClass> loadSingle(Path yaml) {
+        try {
+            DataClass data = YamlConfigurations.load(yaml, parseClass/*, YamlConfigurationProperties.newBuilder().build()*/);
+            if (!filter.filter(yaml.toFile(), data)) {
+                DataKey id = identifier.identify(yaml.toFile(), data);
+                return new YAMLInfo<>(id, data, yaml);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load: " + yaml.getFileName(), e);
+        }
+        return null;
+    }
+
+    private <T> List<List<T>> partition(List<T> list, int size) {
+        List<List<T>> batches = new ArrayList<>();
+        for (int i = 0; i < list.size(); i += size) {
+            batches.add(list.subList(i, Math.min(i + size, list.size())));
+        }
+        return batches;
+    }
+
+    private void loadAsync() {
+        try (var stream = Files.walk(path)) {
+            List<Path> files = stream.filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".yml")).toList();
+            try (var vt = Executors.newVirtualThreadPerTaskExecutor()) {
+                List<Future<YAMLInfo<DataKey, DataClass>>> futures = files.stream().map(yml -> vt.submit(()->loadSingle(yml))).toList();
+                for (var f : futures)
+                    try {
+                        YAMLInfo<DataKey, DataClass> cfg = f.get();
+                        if (cfg == null) throw new RuntimeException("Failed to load config ");
+                        configs.put(cfg.dataKey, cfg.dataClass);
+                        //paths.put(cfg.dataKey, cfg.path);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to load config ", e);
+                    }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load configs from: "+path, e);
         }
     }
 
@@ -181,11 +269,24 @@ public class CMI<DataKey, DataClass> {
         try {
             configs.clear();
             load();
-            for (Consumer<HashMap<DataKey ,DataClass>> consumer : reload)
+            for (Consumer<HashMap<DataKey, DataClass>> consumer : reload)
                 consumer.accept(new HashMap<>(configs));
         } catch (IOException e) {
             throw new RuntimeException("Error while reloading configs in '"+path.toString()+"'",e);
         }
+    }
+
+    public void reloadAsync() {
+        configs.clear();
+        CompletableFuture.runAsync(this::loadAsync)
+                .thenRun(() ->{
+                    for (Consumer<HashMap<DataKey, DataClass>> consumer : reload)
+                        consumer.accept(new HashMap<>(configs));
+                }).exceptionally(ex -> {
+                    ex.printStackTrace();
+                    init.completeExceptionally(ex);
+                    return null;
+                });
     }
 
     /**
@@ -216,7 +317,7 @@ public class CMI<DataKey, DataClass> {
      * @param <DataKey>   key type for identifying configs
      * @param <DataClass> the config data class type
      */
-    public static class Builder<DataKey, DataClass> {
+    public static class Builder<DataKey, DataClass extends BaseData> {
 
         private final Path path;
         private final Class<DataClass> parseClass;
@@ -224,11 +325,13 @@ public class CMI<DataKey, DataClass> {
         private CFilter<DataClass> filter = CFilter.none();
         private Executor executor;
         private final YamlConfigurationProperties.Builder<?> properties = YamlConfigurationProperties.newBuilder();
+        private boolean async = false;
 
-        private Builder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
+        private Builder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier, boolean async) {
             this.path = path;
             this.parseClass = parseClass;
             this.identifier = identifier;
+            this.async = async;
         }
 
         /**

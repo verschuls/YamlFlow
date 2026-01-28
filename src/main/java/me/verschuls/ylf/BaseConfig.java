@@ -73,27 +73,13 @@ public abstract class BaseConfig<T extends BaseConfig.Data> {
         init.complete(this);
     }
 
-    private static String getVersion(Path file) throws IOException {
-        try (var lines = Files.lines(file)) {
-            String version = lines
-                    .map(String::trim)
-                    .filter(line -> !line.startsWith("#"))
-                    .filter(line -> line.startsWith("version:"))
-                    .map(line -> line.substring(9).trim())
-                    .findFirst()
-                    .orElse(null);
-            if (version == null) throw new RuntimeException();
-            return version.replace("'", "").replace("\"", "");
-        }
-    }
-
     private T load() {
         if (!Files.exists(file)) return update();
         if (configVersion == null)
             return YamlConfigurations.update(file, dataClass, properties);
         String fileVersion;
         try {
-            fileVersion = getVersion(file);
+            fileVersion = YLUtils.getVersion(file);
         } catch (IOException e) {
             throw new RuntimeException("Wasn't able to find version",e);
         }

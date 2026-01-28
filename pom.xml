@@ -17,8 +17,20 @@
     <dependencies>
         <dependency>
             <groupId>de.exlll</groupId>
+            <artifactId>configlib-core</artifactId>
+            <version>4.8.0</version>
+        </dependency>
+        <dependency>
+            <groupId>de.exlll</groupId>
             <artifactId>configlib-yaml</artifactId>
-            <version>4.7.0</version>
+            <version>4.8.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/configlib-yaml-4.8.0.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.snakeyaml</groupId>
+            <artifactId>snakeyaml-engine</artifactId>
+            <version>2.7</version>
         </dependency>
     </dependencies>
 

@@ -1,0 +1,10 @@
+jdk:
+  - openjdk21
+
+install:
+  - |
+    if [ "$JITPACK_BRANCH" = "experimental" ]; then
+      echo "The experimental branch is not available for distribution"
+      exit 1
+    fi
+  - mvn install -DskipTests

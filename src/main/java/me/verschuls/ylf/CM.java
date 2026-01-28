@@ -13,7 +13,7 @@ import java.util.function.Consumer;
  *
  * @see BaseConfig
  */
-public class CM {
+public final class CM {
 
     private static final Map<Class<?>, BaseConfig<?>> configs = new ConcurrentHashMap<>();
     private static final Map<Class<?>, CompletableFuture<BaseConfig.Data>> queueInit = new ConcurrentHashMap<>();
