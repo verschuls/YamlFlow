@@ -5,7 +5,6 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 /**
@@ -13,11 +12,11 @@ import java.util.function.Consumer;
  *
  * @see BaseConfig
  */
-public class CM {
+public final class CM {
 
     private static final Map<Class<?>, BaseConfig<?>> configs = new ConcurrentHashMap<>();
-    private static final Map<Class<?>, CompletableFuture<BaseConfig.Data>> queueInit = new ConcurrentHashMap<>();
-    private static final Map<Class<?>, Queue<Consumer<BaseConfig.Data>>> queueReload = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, CompletableFuture<BaseData>> queueInit = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Queue<Consumer<BaseData>>> queueReload = new ConcurrentHashMap<>();
 
     private static VersionCompare versionCompare = VersionCompare.basic();
 
@@ -47,15 +46,14 @@ public class CM {
      */
     public static <T extends BaseConfig<?>> void register(T config) {
         Consumer<BaseConfig<?>> handler = cfg-> {
-            CompletableFuture<BaseConfig.Data> future = queueInit.remove(cfg.getClass());
+            CompletableFuture<BaseData> future = queueInit.remove(cfg.getClass());
             if (future != null) future.complete(cfg.get());
             if (queueReload.containsKey(cfg.getClass())) {
-                Queue<Consumer<BaseConfig.Data>> reload = queueReload.get(cfg.getClass());
+                Queue<Consumer<BaseData>> reload = queueReload.get(cfg.getClass());
                 while (!reload.isEmpty()) cfg.onReload(reload.poll());
             }
         };
-        if (config.getExecutor() == null) config.onInit().thenAcceptAsync(handler);
-        else config.onInit().thenAcceptAsync(handler, config.getExecutor());
+        config.onInit().thenAcceptAsync(handler);
         configs.put(config.getClass(), config);
     }
 
@@ -74,11 +72,10 @@ public class CM {
      * @return future with the config data
      */
     @SuppressWarnings("unchecked")
-    public static <D extends BaseConfig.Data> CompletableFuture<D> onInit(Class<? extends BaseConfig<D>> config) {
+    public static <D extends BaseData> CompletableFuture<D> onInit(Class<? extends BaseConfig<D>> config) {
         BaseConfig<D> cfg = (BaseConfig<D>) configs.get(config);
         if (cfg != null) {
-            if (cfg.getExecutor() == null) return cfg.onInit().thenApplyAsync(BaseConfig::get);
-            return cfg.onInit().thenApplyAsync(BaseConfig::get, cfg.getExecutor());
+            return cfg.onInit().thenApplyAsync(BaseConfig::get);
         }
         else return (CompletableFuture<D>) queueInit.computeIfAbsent(config, k -> new CompletableFuture<>());
     }
@@ -91,7 +88,7 @@ public class CM {
      * @throws IllegalStateException if not registered
      */
     @SuppressWarnings("unchecked")
-    public static <D extends BaseConfig.Data> D get(Class<? extends BaseConfig<D>> config) {
+    public static <D extends BaseData> D get(Class<? extends BaseConfig<D>> config) {
         BaseConfig<D> cfg = (BaseConfig<D>) configs.get(config);
         if (cfg == null) throw new IllegalStateException("Config not registered: " + config.getName()   );
         return cfg.get();
@@ -128,9 +125,9 @@ public class CM {
      * @param consumer callback receiving new config data on reload
      */
     @SuppressWarnings("unchecked")
-    public static <D extends BaseConfig.Data> void onReload(Class<? extends BaseConfig<D>> config, Consumer<D> consumer) {
+    public static <D extends BaseData> void onReload(Class<? extends BaseConfig<D>> config, Consumer<D> consumer) {
         BaseConfig<D> cfg = (BaseConfig<D>) configs.get(config);
         if (cfg != null) cfg.onReload(consumer);
-        else queueReload.computeIfAbsent(config, k -> new ConcurrentLinkedQueue<>()).offer((Consumer<BaseConfig.Data>) consumer);
+        else queueReload.computeIfAbsent(config, k -> new ConcurrentLinkedQueue<>()).offer((Consumer<BaseData>) consumer);
     }
 }
