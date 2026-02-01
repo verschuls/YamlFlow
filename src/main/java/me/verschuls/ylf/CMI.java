@@ -3,8 +3,12 @@ package me.verschuls.ylf;
 import de.exlll.configlib.*;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -16,7 +20,7 @@ import java.util.function.Predicate;
  * Unlike {@link CM}, loads multiple files using the same data class.
  *
  * <p>Use the {@link Builder} to construct instances with customizable options
- * for filtering, serialization, and null handling.</p>
+ * for filtering, versioning, serialization, and null handling.</p>
  *
  * <pre>{@code
  * CMI<String, PlayerData> players = CMI.newBuilder(
@@ -25,26 +29,29 @@ import java.util.function.Predicate;
  *         CIdentifier.fileName()
  *     )
  *     .filter(CFilter.underScores())
- *     .executor(executor)
+ *     .setVersionCompare(VersionCompare.basic())
  *     .build();
  * }</pre>
  *
  * @param <DataKey>   key type for identifying configs (e.g., String, UUID, Integer)
- * @param <DataClass> the config data class (must have {@code @Configuration} annotation)
+ * @param <DataClass> the config data class (must have {@code @Configuration} annotation and extend {@link BaseData})
  * @see CM
  * @see CIdentifier
  * @see CFilter
+ * @see CVersion
  */
-public class CMI<DataKey, DataClass> {
+public final class CMI<DataKey, DataClass extends BaseData> {
 
-    private final Map<DataKey, DataClass> configs = new ConcurrentHashMap<>();
-    private final Map<DataKey, Path> paths = new ConcurrentHashMap<>();
-    private final CompletableFuture<HashMap<DataKey ,DataClass>> init = new CompletableFuture<>();
-    private final List<Consumer<HashMap<DataKey, DataClass>>> reload = new CopyOnWriteArrayList<>();
+    private final Map<DataKey, ConfigInfo<DataClass>> configs = new ConcurrentHashMap<>();
+    private final CompletableFuture<HashMap<DataKey, ConfigInfo<DataClass>>> init = new CompletableFuture<>();
+    private final List<Consumer<HashMap<DataKey, ConfigInfo<DataClass>>>> reload = new CopyOnWriteArrayList<>();
     private final Path path;
     private final Class<DataClass> parseClass;
     private final CIdentifier<DataKey, DataClass> identifier;
     private final CFilter<DataClass> filter;
+    private String configVersion;
+    private String backUpDir = "old";
+    private VersionCompare versionCompare = VersionCompare.basic();
 
     private final YamlConfigurationProperties properties;
 
@@ -64,14 +71,23 @@ public class CMI<DataKey, DataClass> {
             properties.header(parseClass.getAnnotation(Header.class).value());
         if (parseClass.isAnnotationPresent(Footer.class))
             properties.footer(parseClass.getAnnotation(Footer.class).value());
+        if (parseClass.isAnnotationPresent(CVersion.class)) {
+            configVersion = parseClass.getAnnotation(CVersion.class).value();
+            backUpDir = parseClass.getAnnotation(CVersion.class).backupDir();
+        }
+        if (builder.fieldfilter == null)
+            properties.setFieldFilter(field -> !(field.getName().equals("version") && configVersion == null));
+        else
+            properties.setFieldFilter(field -> (!(field.getName().equals("version") && configVersion == null)) && builder.fieldfilter.test(field));
         this.properties = properties.build();
         this.identifier = builder.identifier;
         this.filter = builder.filter;
+        if (versionCompare != null)
+            this.versionCompare = builder.versionCompare;
         this.path = builder.path;
         if (Files.notExists(path)) Files.createDirectory(path);
         load();
-        if (builder.executor != null) init.completeAsync(this::get, builder.executor);
-        else init.completeAsync(this::get);
+        init.completeAsync(this::get);
     }
 
     /**
@@ -84,21 +100,37 @@ public class CMI<DataKey, DataClass> {
      * @param <DataClass> the config data class type
      * @return a new builder instance
      */
-    public static <DataKey, DataClass> Builder<DataKey, DataClass> newBuilder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
+    public static <DataKey, DataClass extends BaseData> Builder<DataKey, DataClass> newBuilder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
         return new Builder<>(path, parseClass, identifier);
     }
 
     private synchronized void load() throws IOException {
-        try (var stream = Files.walk(path)) {
-            stream.filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".yml"))
-                    .forEach(yaml -> {
-                        DataClass data = YamlConfigurations.load(yaml, parseClass, properties);
-                        if (!filter.filter(yaml.toFile(), data)) {
-                            DataKey id = identifier.identify(yaml.toFile(), data);
-                            configs.put(id, data);
-                            paths.put(id, yaml);
-                        }
-                    });
+        Files.walkFileTree(Path.of("configs"), new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.getFileName().toString().equalsIgnoreCase(backUpDir))
+                    return FileVisitResult.SKIP_SIBLINGS;
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path p, BasicFileAttributes attrs) {
+                if (Files.isRegularFile(p) && p.toString().endsWith(".yml"))
+                    loadSingle(p);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    private void loadSingle(Path yaml) {
+        try {
+            DataClass data_ = YamlConfigurations.load(yaml, parseClass);
+            if (filter.filter(yaml.toFile(), data_)) return;
+            DataClass data = YLFUtils.loadConfig(yaml, path, parseClass, properties, versionCompare, configVersion, backUpDir);
+            DataKey id = identifier.identify(yaml.toFile(), data);
+            configs.put(id, ConfigInfo.of(data, yaml));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load: " + yaml.getFileName(), e);
         }
     }
 
@@ -107,7 +139,7 @@ public class CMI<DataKey, DataClass> {
      *
      * @return future containing a snapshot of all loaded configs
      */
-    public CompletableFuture<HashMap<DataKey, DataClass>> onInit() {
+    public CompletableFuture<HashMap<DataKey, ConfigInfo<DataClass>>> onInit() {
         return init;
     }
 
@@ -116,7 +148,7 @@ public class CMI<DataKey, DataClass> {
      *
      * @return a new HashMap containing all loaded configs
      */
-    public HashMap<DataKey, DataClass> get() {
+    public HashMap<DataKey, ConfigInfo<DataClass>> get() {
         return new HashMap<>(configs);
     }
 
@@ -127,6 +159,16 @@ public class CMI<DataKey, DataClass> {
      * @return an Optional containing the config, or empty if not found
      */
     public Optional<DataClass> get(DataKey key) {
+        return Optional.ofNullable(configs.get(key).getData());
+    }
+
+    /**
+     * Gets the full config info (data + path) for a key.
+     *
+     * @param key the key identifying the config
+     * @return an Optional containing the ConfigInfo, or empty if not found
+     */
+    public Optional<ConfigInfo<DataClass>> getInfo(DataKey key) {
         return Optional.ofNullable(configs.get(key));
     }
 
@@ -136,11 +178,11 @@ public class CMI<DataKey, DataClass> {
      * @param predicate condition to test each config
      * @return list of configs that match the predicate
      */
-    public List<DataClass> getWhere(Predicate<DataClass> predicate) {
+    public List<DataClass> getWhere(Predicate<ConfigInfo<DataClass>> predicate) {
         List<DataClass> dataList = new ArrayList<>();
-        for (DataClass data : configs.values())
-            if (predicate.test(data))
-                dataList.add(data);
+        for (ConfigInfo<DataClass> config : configs.values())
+            if (predicate.test(config))
+                dataList.add(config.getData());
         return dataList;
     }
 
@@ -152,11 +194,10 @@ public class CMI<DataKey, DataClass> {
      * @param name the file name without .yml extension
      * @return the existing or newly created config instance
      */
-    public DataClass create(DataKey key, String name) {
+    public ConfigInfo<DataClass> create(DataKey key, String name) {
         Path path = this.path.resolve(name+".yml");
         if (configs.containsKey(key)) return configs.get(key);
-        paths.put(key, path);
-        return configs.computeIfAbsent(key, key_ -> YamlConfigurations.update(path, parseClass, properties));
+        return configs.computeIfAbsent(key, key_ -> ConfigInfo.of(YamlConfigurations.update(path, parseClass, properties), path));
     }
 
     /**
@@ -165,10 +206,10 @@ public class CMI<DataKey, DataClass> {
      * @param key  the key identifying the config
      * @param data the config data to save
      */
-    public void save(DataKey key, DataClass data) {
+    public synchronized void save(DataKey key, DataClass data) {
         if (!configs.containsKey(key)) return;
-        YamlConfigurations.save(paths.get(key), parseClass, data, properties);
-        configs.replace(key, data);
+        YamlConfigurations.save(configs.get(key).getPath(), parseClass, data, properties);
+        configs.replace(key, ConfigInfo.of(data, configs.get(key).getPath()));
     }
 
     /**
@@ -181,7 +222,7 @@ public class CMI<DataKey, DataClass> {
         try {
             configs.clear();
             load();
-            for (Consumer<HashMap<DataKey ,DataClass>> consumer : reload)
+            for (Consumer<HashMap<DataKey, ConfigInfo<DataClass>>> consumer : reload)
                 consumer.accept(new HashMap<>(configs));
         } catch (IOException e) {
             throw new RuntimeException("Error while reloading configs in '"+path.toString()+"'",e);
@@ -193,7 +234,7 @@ public class CMI<DataKey, DataClass> {
      *
      * @param consumer callback receiving a snapshot of all configs after reload
      */
-    public void onReload(Consumer<HashMap<DataKey, DataClass>> consumer) {
+    public void onReload(Consumer<HashMap<DataKey, ConfigInfo<DataClass>>> consumer) {
         reload.add(consumer);
     }
 
@@ -201,13 +242,13 @@ public class CMI<DataKey, DataClass> {
     /**
      * Builder for constructing {@link CMI} instances with customizable options.
      *
-     * <p>Provides fluent methods for configuring filtering, executors, null handling,
+     * <p>Provides fluent methods for configuring filtering, versioning, null handling,
      * custom serializers, field filters, and name formatters.</p>
      *
      * <pre>{@code
      * CMI<String, PlayerData> players = CMI.newBuilder(path, PlayerData.class, CIdentifier.fileName())
      *     .filter(CFilter.underScores())
-     *     .executor(executor)
+     *     .setVersionCompare(VersionCompare.basic())
      *     .inputNulls(true)
      *     .addSerializer(UUID.class, new UUIDSerializer())
      *     .build();
@@ -216,13 +257,14 @@ public class CMI<DataKey, DataClass> {
      * @param <DataKey>   key type for identifying configs
      * @param <DataClass> the config data class type
      */
-    public static class Builder<DataKey, DataClass> {
+    public static class Builder<DataKey, DataClass extends BaseData> {
 
         private final Path path;
         private final Class<DataClass> parseClass;
         private final CIdentifier<DataKey, DataClass> identifier;
         private CFilter<DataClass> filter = CFilter.none();
-        private Executor executor;
+        private VersionCompare versionCompare;
+        private Predicate<Field> fieldfilter;
         private final YamlConfigurationProperties.Builder<?> properties = YamlConfigurationProperties.newBuilder();
 
         private Builder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
@@ -244,13 +286,15 @@ public class CMI<DataKey, DataClass> {
         }
 
         /**
-         * Sets the executor for async initialization callback.
+         * Sets a custom version comparator for this CMI instance.
+         * If not set, uses {@link VersionCompare#basic()}.
          *
-         * @param executor the executor for running async callbacks
+         * @param compare the version comparator
          * @return this builder
+         * @see VersionCompare
          */
-        public Builder<DataKey, DataClass> executor(Executor executor) {
-            this.executor = executor;
+        public Builder<DataKey, DataClass> setVersionCompare(VersionCompare compare) {
+            this.versionCompare = compare;
             return this;
         }
 
@@ -320,8 +364,8 @@ public class CMI<DataKey, DataClass> {
          * @param filter the field filter
          * @return this builder
          */
-        public Builder<DataKey, DataClass> setFieldFilter(FieldFilter filter) {
-            this.properties.setFieldFilter(filter);
+        public Builder<DataKey, DataClass> setFieldFilter(Predicate<Field> filter) {
+            this.fieldfilter = filter;
             return this;
         }
 

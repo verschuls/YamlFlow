@@ -17,7 +17,7 @@ Lightweight wrapper for [ConfigLib](https://github.com/Exlll/ConfigLib) with cen
 <dependency>
     <groupId>com.github.verschuls</groupId>
     <artifactId>YamlFlow</artifactId>
-    <version>v1.2.1</version>
+    <version>v1.2.2</version>
 </dependency>
 ```
 
@@ -29,7 +29,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.verschuls:YamlFlow:v1.2.1'
+    implementation 'com.github.verschuls:YamlFlow:v1.2.2'
 }
 ```
 
@@ -48,20 +48,20 @@ Use `CM` for named config files (settings.yml, messages.yml, etc.)
 
 ```java
 public class ServerConfig extends BaseConfig<ServerConfig.Data> {
-    public ServerConfig(Path dir, Executor executor) {
-        super(dir, "server", Data.class, executor);
+    public ServerConfig(Path dir) {
+        super(dir, "server", Data.class);
     }
 
     @Header("Server Configuration")
     @Footer("End of config")
-    public static class Data extends BaseConfig.Data {
+    public static class Data extends BaseData {
         public String host = "localhost";
         public int port = 8080;
     }
 }
 
 // Register
-CM.register(new ServerConfig(Path.of("./config"), executor));
+CM.register(new ServerConfig(Path.of("./config")));
 
 // Wait for init
 CM.onInit(ServerConfig.class).thenAccept(data -> {
@@ -78,16 +78,16 @@ CM.onReload(ServerConfig.class, data -> System.out.println("Reloaded!"));
 
 ## Config Versioning
 
-Add automatic version tracking and backup on version mismatch using the `@CVersion` annotation:
+Add automatic version tracking and backup on version mismatch using the `@CVersion` annotation. Works with both `CM` and `CMI`.
 
 ```java
 public class VersionedConfig extends BaseConfig<VersionedConfig.Data> {
-    public VersionedConfig(Path dir, Executor executor) {
-        super(dir, "config", Data.class, executor);
+    public VersionedConfig(Path dir) {
+        super(dir, "config", Data.class);
     }
 
     @CVersion("1.0.0")
-    public static class Data extends BaseConfig.Data {
+    public static class Data extends BaseData {
         public String setting = "default";
     }
 }
@@ -95,13 +95,21 @@ public class VersionedConfig extends BaseConfig<VersionedConfig.Data> {
 
 **Behavior:**
 - On load, the file's `version` field is compared against the `@CVersion` value
-- If versions don't match, the old config is backed up as `config-v1.0.0-xxxx.yml`
+- If versions don't match, the old config is backed up to `old/config-v1.0.0-xxxx.yml`
 - The config is then updated with the new version and default values for new fields
+
+**Custom backup directory:**
+```java
+@CVersion(value = "1.0.0", backupDir = "backups")
+public static class Data extends BaseData {
+    // backups will go to backups/config-vX.X.X-xxxx.yml
+}
+```
 
 **Custom version comparison:**
 ```java
 // Set custom comparator (called once at startup)
-CM.setVersionComparator((fileVersion, configVersion) -> 
+CM.setVersionComparator((fileVersion, configVersion) ->
     fileVersion.equals(configVersion)  // return true = versions match, skip backup
 );
 ```
@@ -112,7 +120,7 @@ Use `CMI` for loading multiple similar configs from a directory (players/, kits/
 
 ```java
 @Configuration
-public class PlayerData {
+public class PlayerData extends BaseData {
     public String name = "Unknown";
     public int level = 1;
 }
@@ -124,22 +132,45 @@ CMI<String, PlayerData> players = CMI.newBuilder(
         CIdentifier.fileName()
     )
     .filter(CFilter.underScores())
-    .executor(executor)
     .inputNulls(true)
     .build();
 
 // Access configs
 Optional<PlayerData> player = players.get("steve");
-HashMap<String, PlayerData> all = players.get();
+HashMap<String, ConfigInfo<PlayerData>> all = players.get();
+
+// Access config with path info
+Optional<ConfigInfo<PlayerData>> info = players.getInfo("steve");
+info.ifPresent(i -> {
+    System.out.println("Path: " + i.getPath());
+    System.out.println("Name: " + i.getData().name);
+});
 
 // Create & save
-PlayerData newPlayer = players.create("alex", "alex");
-newPlayer.name = "Alex";
-players.save("alex", newPlayer);
+ConfigInfo<PlayerData> newPlayer = players.create("alex", "alex");
+newPlayer.getData().name = "Alex";
+players.save("alex", newPlayer.getData());
 
 // Reload
 players.reload();
 players.onReload(all -> System.out.println("Reloaded " + all.size() + " players"));
+```
+
+CMI also supports versioning with `@CVersion`:
+
+```java
+@Configuration
+@CVersion(value = "2.0", backupDir = "old_players")
+public class PlayerData extends BaseData {
+    public String name = "Unknown";
+    public int level = 1;
+    public int xp = 0; // new field in v2.0
+}
+
+// Custom version comparator for this CMI instance
+CMI<String, PlayerData> players = CMI.newBuilder(Path.of("./players"), PlayerData.class, CIdentifier.fileName())
+    .setVersionCompare((fileVersion, configVersion) -> fileVersion.equals(configVersion))
+    .build();
 ```
 
 ### Builder Options
@@ -147,13 +178,13 @@ players.onReload(all -> System.out.println("Reloaded " + all.size() + " players"
 | Method | Description |
 |--------|-------------|
 | `filter(CFilter)` | Exclude files from loading |
-| `executor(Executor)` | Executor for async init callback |
+| `setVersionCompare(VersionCompare)` | Custom version comparator (default: `VersionCompare.basic()`) |
 | `inputNulls(boolean)` | Allow null values from YAML |
 | `outputNulls(boolean)` | Write null values to YAML |
 | `acceptNulls(boolean)` | Shorthand for both inputNulls and outputNulls |
 | `addSerializer(Class, Serializer)` | Custom type serializer |
 | `addSerializerFactory(Class, Function)` | Context-aware serializer factory |
-| `setFieldFilter(FieldFilter)` | Control which fields are serialized |
+| `setFieldFilter(Predicate<Field>)` | Control which fields are serialized |
 | `setNameFormatter(NameFormatter)` | Custom field-to-YAML-key naming |
 
 ## CIdentifier - Key Strategies
@@ -196,7 +227,7 @@ Add headers/footers to generated YAML files:
 ```java
 @Header("=== My Config ===\nEdit with care")
 @Footer("Generated by YamlFlow")
-public static class Data extends BaseConfig.Data {
+public static class Data extends BaseData {
     public String value = "default";
 }
 ```
@@ -213,7 +244,7 @@ value: default
 
 ## Coming Soon
 
-- **Async CMI** - Non-blocking bulk config loading
-- **CMI Versioning** - Version support for bulk configs
-- **Optimizations** - Performance improvements
+- **Async CMI** - Non-blocking bulk config loading?
+- **Optimizations** - Performance improvements?
+- **CM Properties** - Builder pattern for BaseConfig
 - ...and more

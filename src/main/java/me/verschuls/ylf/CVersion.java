@@ -9,10 +9,10 @@ import java.lang.annotation.Target;
  * Annotation for specifying config version requirements.
  * When the file version doesn't match, a backup is created and the config is updated.
  *
- * <p>Apply to a {@link BaseConfig.Data} subclass to enable version checking:</p>
+ * <p>Apply to a {@link BaseData} subclass to enable version checking:</p>
  * <pre>{@code
  * @CVersion("1.2")
- * public class MyConfig extends BaseConfig.Data {
+ * public class MyConfig extends BaseData {
  *     // ...
  * }
  * }</pre>
@@ -32,4 +32,11 @@ public @interface CVersion {
      * @return the required version string
      */
     String value();
+
+    /**
+     * Directory name where old config backups are stored.
+     *
+     * @return the backup directory name (default: "old")
+     */
+    String backupDir() default "old";
 }

@@ -19,13 +19,13 @@ import java.util.function.Consumer;
 
 /**
  * Base class for YAML configurations with hash-based change detection.
- * Extend this class and define a nested {@link Data} class with your config fields.
+ * Extend this class and define a nested {@link BaseData} class with your config fields.
  * Register with {@link CM#register(BaseConfig)}.
  *
- * @param <T> the data type extending {@link Data}
+ * @param <T> the data type extending {@link BaseData}
  * @see CM
  */
-public abstract class BaseConfig<T extends BaseConfig.Data> {
+public abstract class BaseConfig<T extends BaseData> {
 
     private final Path path;
     private final String name;
@@ -33,12 +33,12 @@ public abstract class BaseConfig<T extends BaseConfig.Data> {
     private final Class<T> dataClass;
     private final YamlConfigurationProperties properties;
     private String configVersion;
+    private String backUpDir = "old";
     private volatile T instance;
     private volatile byte[] fileHash;
     private final List<Consumer<T>> reloadConsumers = new CopyOnWriteArrayList<>();
     private final CompletableFuture<BaseConfig<T>> init = new CompletableFuture<>();
 
-    private final Executor executor;
     private final Object ioLock = new Object();
 
     /**
@@ -47,10 +47,8 @@ public abstract class BaseConfig<T extends BaseConfig.Data> {
      * @param path      directory for the config file
      * @param name      file name without .yml extension
      * @param dataClass the data class
-     * @param executor  executor for async callbacks - can be null
      */
-    public BaseConfig(Path path, String name, Class<T> dataClass, Executor executor) {
-        this.executor = executor;
+    public BaseConfig(Path path, String name, Class<T> dataClass) {
         this.path = path;
         this.name = name;
         this.file = path.resolve(name+".yml");;
@@ -60,59 +58,19 @@ public abstract class BaseConfig<T extends BaseConfig.Data> {
             builder.header(dataClass.getAnnotation(Header.class).value());
         if (dataClass.isAnnotationPresent(Footer.class))
             builder.footer(dataClass.getAnnotation(Footer.class).value());
-        if (dataClass.isAnnotationPresent(CVersion.class))
+        if (dataClass.isAnnotationPresent(CVersion.class)) {
             configVersion = dataClass.getAnnotation(CVersion.class).value();
+            backUpDir = dataClass.getAnnotation(CVersion.class).backupDir();
+        }
         builder.setFieldFilter(field -> !(field.getName().equals("version") && configVersion == null));
         this.properties = builder.build();
-        this.instance = load();
+        this.instance = YLFUtils.loadConfig(file, path, dataClass, properties, CM.getVersionCompare(), configVersion, backUpDir);
         try {
             this.fileHash = calculateFileHash();
         } catch (Exception e) {
             throw new RuntimeException("Wasn't able to calculate hash for config file: "+name, e);
         }
         init.complete(this);
-    }
-
-    private static String getVersion(Path file) throws IOException {
-        try (var lines = Files.lines(file)) {
-            String version = lines
-                    .map(String::trim)
-                    .filter(line -> !line.startsWith("#"))
-                    .filter(line -> line.startsWith("version:"))
-                    .map(line -> line.substring(9).trim())
-                    .findFirst()
-                    .orElse(null);
-            if (version == null) throw new RuntimeException();
-            return version.replace("'", "").replace("\"", "");
-        }
-    }
-
-    private T load() {
-        if (!Files.exists(file)) return update();
-        if (configVersion == null)
-            return YamlConfigurations.update(file, dataClass, properties);
-        String fileVersion;
-        try {
-            fileVersion = getVersion(file);
-        } catch (IOException e) {
-            throw new RuntimeException("Wasn't able to find version",e);
-        }
-        if (CM.getVersionCompare().compare(fileVersion, configVersion)) return update();
-        try {
-            Files.copy(file, path.resolve(name+"-v"+fileVersion+"-"+ UUID.randomUUID().toString().substring(0, 4)+".yml"));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return update();
-    }
-
-    private T update() {
-        if (configVersion == null)
-            return YamlConfigurations.update(file, dataClass, properties);
-        T data = YamlConfigurations.update(file, dataClass, properties);
-        data.version = configVersion;
-        YamlConfigurations.save(file, dataClass, data, properties);
-        return data;
     }
 
     private byte[] calculateFileHash() throws Exception {
@@ -130,7 +88,7 @@ public abstract class BaseConfig<T extends BaseConfig.Data> {
                 byte[] newHash = calculateFileHash();
                 if (Arrays.equals(fileHash, newHash)) return;
                 fileHash = newHash;
-                this.instance = load();
+                this.instance = YLFUtils.loadConfig(file, path, dataClass, properties, CM.getVersionCompare(), configVersion, backUpDir);
                 for (Consumer<T> consumer : reloadConsumers)
                     consumer.accept(instance);
             } catch (Exception e) {
@@ -140,7 +98,7 @@ public abstract class BaseConfig<T extends BaseConfig.Data> {
     }
 
     @SuppressWarnings("unchecked")
-    final <K extends BaseConfig.Data> void onReload(Consumer<K> onReload) {
+    final <K extends BaseData> void onReload(Consumer<K> onReload) {
         reloadConsumers.add((Consumer<T>) onReload);
     }
 
@@ -160,16 +118,4 @@ public abstract class BaseConfig<T extends BaseConfig.Data> {
         }
     }
 
-    final Executor getExecutor() {
-        return executor;
-    }
-
-    /**
-     * Base class for config data. Extend and annotate with {@link Configuration}.
-     */
-    @Configuration
-    public static abstract class Data {
-        public Data() {}
-        String version = "";
-    }
 }
