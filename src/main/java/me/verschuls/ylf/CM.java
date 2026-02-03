@@ -53,7 +53,8 @@ public final class CM {
                 while (!reload.isEmpty()) cfg.onReload(reload.poll());
             }
         };
-        config.onInit().thenAcceptAsync(handler);
+        if (config.getExecutor() == null) config.onInit().thenAcceptAsync(handler);
+        else config.onInit().thenAcceptAsync(handler, config.getExecutor());
         configs.put(config.getClass(), config);
     }
 
@@ -75,7 +76,8 @@ public final class CM {
     public static <D extends BaseData> CompletableFuture<D> onInit(Class<? extends BaseConfig<D>> config) {
         BaseConfig<D> cfg = (BaseConfig<D>) configs.get(config);
         if (cfg != null) {
-            return cfg.onInit().thenApplyAsync(BaseConfig::get);
+            if (cfg.getExecutor() == null) return cfg.onInit().thenApplyAsync(BaseConfig::get);
+            return cfg.onInit().thenApplyAsync(BaseConfig::get, cfg.getExecutor());
         }
         else return (CompletableFuture<D>) queueInit.computeIfAbsent(config, k -> new CompletableFuture<>());
     }

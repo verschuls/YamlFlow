@@ -82,12 +82,13 @@ public final class CMI<DataKey, DataClass extends BaseData> {
         this.properties = properties.build();
         this.identifier = builder.identifier;
         this.filter = builder.filter;
-        if (versionCompare != null)
+        if (builder.versionCompare != null)
             this.versionCompare = builder.versionCompare;
         this.path = builder.path;
         if (Files.notExists(path)) Files.createDirectory(path);
         load();
-        init.completeAsync(this::get);
+        if (builder.executor != null) init.completeAsync(this::get, builder.executor);
+        else init.completeAsync(this::get);
     }
 
     /**
@@ -109,7 +110,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                 if (dir.getFileName().toString().equalsIgnoreCase(backUpDir))
-                    return FileVisitResult.SKIP_SIBLINGS;
+                    return FileVisitResult.SKIP_SUBTREE;
                 return FileVisitResult.CONTINUE;
             }
 
@@ -159,7 +160,8 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      * @return an Optional containing the config, or empty if not found
      */
     public Optional<DataClass> get(DataKey key) {
-        return Optional.ofNullable(configs.get(key).getData());
+        if (configs.containsKey(key)) return Optional.of(configs.get(key).getData());
+        return Optional.empty();
     }
 
     /**
@@ -197,7 +199,11 @@ public final class CMI<DataKey, DataClass extends BaseData> {
     public ConfigInfo<DataClass> create(DataKey key, String name) {
         Path path = this.path.resolve(name+".yml");
         if (configs.containsKey(key)) return configs.get(key);
-        return configs.computeIfAbsent(key, key_ -> ConfigInfo.of(YamlConfigurations.update(path, parseClass, properties), path));
+        return configs.computeIfAbsent(key, key_ -> {
+            DataClass data = YamlConfigurations.update(path, parseClass, properties);
+            if (configVersion != null) data.version = configVersion;
+            return ConfigInfo.of(data, path);
+        });
     }
 
     /**
@@ -208,8 +214,9 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      */
     public synchronized void save(DataKey key, DataClass data) {
         if (!configs.containsKey(key)) return;
-        YamlConfigurations.save(configs.get(key).getPath(), parseClass, data, properties);
-        configs.replace(key, ConfigInfo.of(data, configs.get(key).getPath()));
+        Path path = configs.get(key).getPath();
+        YamlConfigurations.save(path, parseClass, data, properties);
+        configs.replace(key, ConfigInfo.of(data, path));
     }
 
     /**
@@ -265,6 +272,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
         private CFilter<DataClass> filter = CFilter.none();
         private VersionCompare versionCompare;
         private Predicate<Field> fieldfilter;
+        private Executor executor;
         private final YamlConfigurationProperties.Builder<?> properties = YamlConfigurationProperties.newBuilder();
 
         private Builder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
@@ -282,6 +290,17 @@ public final class CMI<DataKey, DataClass extends BaseData> {
          */
         public Builder<DataKey, DataClass> filter(CFilter<DataClass> filter) {
             this.filter = filter;
+            return this;
+        }
+
+        /**
+         * Sets the executor for async initialization callback.
+         *
+         * @param executor the executor for running async callbacks
+         * @return this builder
+         */
+        public Builder<DataKey, DataClass> executor(Executor executor) {
+            this.executor = executor;
             return this;
         }
 
