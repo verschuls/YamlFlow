@@ -105,7 +105,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
     }
 
     private synchronized void load() throws IOException {
-        Files.walkFileTree(Path.of("configs"), new SimpleFileVisitor<>() {
+        Files.walkFileTree(path, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                 if (dir.getFileName().toString().equalsIgnoreCase(backUpDir))
