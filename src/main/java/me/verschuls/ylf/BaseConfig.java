@@ -31,6 +31,7 @@ public abstract class BaseConfig<T extends BaseData> {
     private final String name;
     private final Path file;
     private final Class<T> dataClass;
+    private Executor executor = null;
     private final YamlConfigurationProperties properties;
     private String configVersion;
     private String backUpDir = "old";
@@ -48,11 +49,12 @@ public abstract class BaseConfig<T extends BaseData> {
      * @param name      file name without .yml extension
      * @param dataClass the data class
      */
-    public BaseConfig(Path path, String name, Class<T> dataClass) {
+    public BaseConfig(Path path, String name, Class<T> dataClass, Executor executor) {
         this.path = path;
         this.name = name;
         this.file = path.resolve(name+".yml");;
         this.dataClass = dataClass;
+        this.executor = executor;
         YamlConfigurationProperties.Builder<?> builder = YamlConfigurationProperties.newBuilder();
         if (dataClass.isAnnotationPresent(Header.class))
             builder.header(dataClass.getAnnotation(Header.class).value());
@@ -104,6 +106,10 @@ public abstract class BaseConfig<T extends BaseData> {
 
     final CompletableFuture<BaseConfig<T>> onInit() {
         return init;
+    }
+
+    final Executor getExecutor() {
+        return executor;
     }
 
 
