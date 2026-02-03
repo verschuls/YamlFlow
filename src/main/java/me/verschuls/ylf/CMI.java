@@ -85,7 +85,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
         if (builder.versionCompare != null)
             this.versionCompare = builder.versionCompare;
         this.path = builder.path;
-        if (Files.notExists(path)) Files.createDirectory(path);
+        if (Files.notExists(path)) Files.createDirectories(path);
         load();
         if (builder.executor != null) init.completeAsync(this::get, builder.executor);
         else init.completeAsync(this::get);
@@ -116,7 +116,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
 
             @Override
             public FileVisitResult visitFile(Path p, BasicFileAttributes attrs) {
-                if (Files.isRegularFile(p) && p.toString().endsWith(".yml"))
+                if (Files.isRegularFile(p) && p.toString().toLowerCase().endsWith(".yml"))
                     loadSingle(p);
                 return FileVisitResult.CONTINUE;
             }
@@ -160,8 +160,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      * @return an Optional containing the config, or empty if not found
      */
     public Optional<DataClass> get(DataKey key) {
-        if (configs.containsKey(key)) return Optional.of(configs.get(key).getData());
-        return Optional.empty();
+        return Optional.ofNullable(configs.get(key)).map(ConfigInfo::getData);
     }
 
     /**
@@ -198,10 +197,12 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      */
     public ConfigInfo<DataClass> create(DataKey key, String name) {
         Path path = this.path.resolve(name+".yml");
-        if (configs.containsKey(key)) return configs.get(key);
         return configs.computeIfAbsent(key, key_ -> {
             DataClass data = YamlConfigurations.update(path, parseClass, properties);
-            if (configVersion != null) data.version = configVersion;
+            if (configVersion != null) {
+                data.version = configVersion;
+                YamlConfigurations.save(path, parseClass, data, properties);
+            }
             return ConfigInfo.of(data, path);
         });
     }
