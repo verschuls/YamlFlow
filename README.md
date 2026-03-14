@@ -17,7 +17,7 @@ Lightweight wrapper for [ConfigLib](https://github.com/Exlll/ConfigLib) with cen
 <dependency>
     <groupId>com.github.verschuls</groupId>
     <artifactId>YamlFlow</artifactId>
-    <version>v1.2.4</version>
+    <version>v1.2.5</version>
 </dependency>
 ```
 
