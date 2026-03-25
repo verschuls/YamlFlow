@@ -20,7 +20,7 @@ public final class CM {
     private static final Map<Class<?>, Queue<Consumer<BaseData>>> queueReload = new ConcurrentHashMap<>();
 
     private static VersionCompare versionCompare = VersionCompare.basic();
-    private static InputStream resource;
+    private static ClassLoader resourceLoader;
 
     /**
      * Sets a custom version comparator for all config version checks.
@@ -42,15 +42,15 @@ public final class CM {
      * <p>Configs marked with {@code @ResourceFile} will read their default content from this
      * stream rather than from the file system directly.</p>
      *
-     * @param inputStream the input stream to load resource files from
+     * @param classLoader the input stream to load resource files from
      * @see ResourceFile
      */
-    public static void setResource(InputStream inputStream) {
-        resource = inputStream;
+    public static void setResourceLoader(ClassLoader classLoader) {
+        resourceLoader = classLoader;
     }
 
-    static InputStream getResource() {
-        return resource;
+    static InputStream getResource(String path) {
+        return resourceLoader.getResourceAsStream(path);
     }
 
     /**
