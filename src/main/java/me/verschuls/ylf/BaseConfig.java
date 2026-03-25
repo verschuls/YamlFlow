@@ -2,6 +2,8 @@ package me.verschuls.ylf;
 
 import de.exlll.configlib.*;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -79,6 +81,13 @@ public abstract class BaseConfig<T extends BaseData> {
         builder.setFieldFilter(field -> !(field.getName().equals("version") && configVersion == null) && fieldFilter().test(field));
         advanced(builder);
         this.properties = builder.build();
+        if (dataClass.isAnnotationPresent(ResourceFile.class)) {
+            try (InputStream stream = CM.getResource()) {
+                if (Files.notExists(file)) Files.copy(stream, file);
+            } catch (IOException e) {
+                throw new RuntimeException();
+            }
+        }
         this.instance = YLFUtils.loadConfig(file, path, dataClass, properties, CM.getVersionCompare(), configVersion, backUpDir);
         try {
             this.fileHash = calculateFileHash();

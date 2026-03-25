@@ -1,5 +1,6 @@
 package me.verschuls.ylf;
 
+import java.io.InputStream;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
@@ -19,6 +20,7 @@ public final class CM {
     private static final Map<Class<?>, Queue<Consumer<BaseData>>> queueReload = new ConcurrentHashMap<>();
 
     private static VersionCompare versionCompare = VersionCompare.basic();
+    private static InputStream resource;
 
     /**
      * Sets a custom version comparator for all config version checks.
@@ -30,13 +32,25 @@ public final class CM {
         versionCompare = comparator;
     }
 
-    /**
-     * Returns the currently configured version comparator.
-     *
-     * @return the active version comparator
-     */
     static VersionCompare getVersionCompare() {
         return versionCompare;
+    }
+
+    /**
+     * Sets the resource input stream used by configs annotated with {@link ResourceFile}.
+     *
+     * <p>Configs marked with {@code @ResourceFile} will read their default content from this
+     * stream rather than from the file system directly.</p>
+     *
+     * @param inputStream the input stream to load resource files from
+     * @see ResourceFile
+     */
+    public static void setResource(InputStream inputStream) {
+        resource = inputStream;
+    }
+
+    static InputStream getResource() {
+        return resource;
     }
 
     /**
