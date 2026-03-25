@@ -82,8 +82,9 @@ public abstract class BaseConfig<T extends BaseData> {
         advanced(builder);
         this.properties = builder.build();
         if (dataClass.isAnnotationPresent(ResourceFile.class)) {
-            try (InputStream stream = CM.getResource()) {
-                if (Files.notExists(file)) Files.copy(stream, file);
+            try (InputStream stream = CM.getResource(file.toString())) {
+                if (stream != null && Files.notExists(file))
+                    Files.copy(stream, file);
             } catch (IOException e) {
                 throw new RuntimeException();
             }
