@@ -35,12 +35,14 @@ dependencies {
 
 ## Features
 
-- **Hash-based reloading** - Only reloads when file content changes
+- **Hash-based reloading** - Only reloads when file content changes (SHA-256)
 - **Async initialization** - Non-blocking config loading with CompletableFuture
 - **Reload callbacks** - React to config changes
 - **Thread-safe** - All operations are properly synchronized
 - **Bulk loading** - Load multiple configs from a directory
 - **Config versioning** - Automatic backup and migration on version mismatch
+- **Resource files** - Load default configs from JAR resources
+- **Null policies** - Annotation-driven null handling
 
 ## CM - Single Config Management
 
@@ -49,7 +51,7 @@ Use `CM` for named config files (settings.yml, messages.yml, etc.)
 ```java
 public class ServerConfig extends BaseConfig<ServerConfig.Data> {
     public ServerConfig(Path dir) {
-        super(dir, "server", Data.class);
+        super(dir, "server", Data.class, null);
     }
 
     @Header("Server Configuration")
@@ -73,8 +75,108 @@ ServerConfig.Data data = CM.get(ServerConfig.class);
 
 // Reload & callbacks
 CM.reload(ServerConfig.class);
+CM.reloadAll();
 CM.onReload(ServerConfig.class, data -> System.out.println("Reloaded!"));
+
+// Save changes to disk
+CM.save(ServerConfig.class);
+
+// Check registration
+CM.isRegistered(myConfig);
 ```
+
+### Custom Executor
+
+Pass an `Executor` to control which thread the async init callback runs on:
+
+```java
+public class ServerConfig extends BaseConfig<ServerConfig.Data> {
+    public ServerConfig(Path dir, Executor executor) {
+        super(dir, "server", Data.class, executor);
+    }
+    // ...
+}
+```
+
+### BaseConfig Overrides
+
+BaseConfig provides override methods for customizing serialization behavior:
+
+```java
+public class ServerConfig extends BaseConfig<ServerConfig.Data> {
+    public ServerConfig(Path dir) {
+        super(dir, "server", Data.class, null);
+    }
+
+    @Override
+    protected Map<Class<?>, Serializer<?, ?>> serializers() {
+        return Map.of(UUID.class, new UUIDSerializer());
+    }
+
+    @Override
+    protected Map<Class<?>, Function<? super SerializerContext, ? extends Serializer<?, ?>>> serializersFactory() {
+        return Map.of(MyType.class, ctx -> new MyTypeSerializer(ctx));
+    }
+
+    @Override
+    protected NameFormatter nameFormatter() {
+        return NameFormatters.LOWER_KEBAB_CASE;
+    }
+
+    @Override
+    protected Predicate<Field> fieldFilter() {
+        return field -> !Modifier.isTransient(field.getModifiers());
+    }
+
+    @Override
+    protected void advanced(YamlConfigurationProperties.Builder<?> properties) {
+        properties.charset(StandardCharsets.UTF_16);
+    }
+
+    public static class Data extends BaseData {
+        public String host = "localhost";
+    }
+}
+```
+
+## Resource Files
+
+Annotate a data class with `@ResourceFile` to copy a default config from JAR resources when the file doesn't exist yet. Set the class loader once at startup:
+
+```java
+// Set the class loader (e.g. from your plugin/application)
+CM.setResourceLoader(getClass().getClassLoader());
+
+public class MessagesConfig extends BaseConfig<MessagesConfig.Data> {
+    public MessagesConfig(Path dir) {
+        super(dir, "messages", Data.class, null);
+    }
+
+    @ResourceFile
+    public static class Data extends BaseData {
+        public String greeting = "Hello!";
+    }
+}
+```
+
+The config file path is resolved relative to the class loader's resources. If the file doesn't exist on disk, it is copied from the JAR resource before loading.
+
+## Null Policy
+
+Control null handling with the `@NullPolicy` annotation on your data class:
+
+```java
+@NullPolicy(NullPolicy.Type.FULL)
+public static class Data extends BaseData {
+    public String optional = null; // nulls read from and written to YAML
+}
+```
+
+| Type | Description |
+|------|-------------|
+| `INPUT` | Allow null values when reading from YAML |
+| `OUTPUT` | Allow null values when writing to YAML |
+| `FULL` | Allow nulls in both directions |
 
 ## Config Versioning
 
@@ -83,7 +185,7 @@ Add automatic version tracking and backup on version mismatch using the `@CVersi
 ```java
 public class VersionedConfig extends BaseConfig<VersionedConfig.Data> {
     public VersionedConfig(Path dir) {
-        super(dir, "config", Data.class);
+        super(dir, "config", Data.class, null);
     }
 
     @CVersion("1.0.0")
@@ -146,6 +248,9 @@ info.ifPresent(i -> {
     System.out.println("Name: " + i.getData().name);
 });
 
+// Find configs by condition
+List<PlayerData> highLevel = players.getWhere(info -> info.getData().level > 50);
+
 // Create & save
 ConfigInfo<PlayerData> newPlayer = players.create("alex", "alex");
 newPlayer.getData().name = "Alex";
@@ -178,6 +283,7 @@ CMI<String, PlayerData> players = CMI.newBuilder(Path.of("./players"), PlayerDat
 | Method | Description |
 |--------|-------------|
 | `filter(CFilter)` | Exclude files from loading |
+| `executor(Executor)` | Set executor for async init callback |
 | `setVersionCompare(VersionCompare)` | Custom version comparator (default: `VersionCompare.basic()`) |
 | `inputNulls(boolean)` | Allow null values from YAML |
 | `outputNulls(boolean)` | Write null values to YAML |
@@ -241,10 +347,3 @@ value: default
 
 # Generated by YamlFlow
 ```
-
-## Coming Soon
-
-- **Async CMI** - Non-blocking bulk config loading?
-- **Optimizations** - Performance improvements?
-- **CM Properties** - Builder pattern for BaseConfig
-- ...and more
