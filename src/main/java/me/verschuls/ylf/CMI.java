@@ -45,9 +45,9 @@ import java.util.function.Predicate;
  */
 public final class CMI<DataKey, DataClass extends BaseData> {
 
-    private final Map<DataKey, ConfigInfo<DataClass>> configs = new ConcurrentHashMap<>();
-    private final CompletableFuture<HashMap<DataKey, ConfigInfo<DataClass>>> init = new CompletableFuture<>();
-    private final List<Consumer<HashMap<DataKey, ConfigInfo<DataClass>>>> reload = new CopyOnWriteArrayList<>();
+    private final Map<DataKey, ConfigInfo<DataKey, DataClass>> configs = new ConcurrentHashMap<>();
+    private final CompletableFuture<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> init = new CompletableFuture<>();
+    private final List<Consumer<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>>> reload = new CopyOnWriteArrayList<>();
     private final Path path;
     private final Class<DataClass> parseClass;
     private final Identifier<DataKey, DataClass> identifier;
@@ -132,7 +132,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
             if (filter.filter(yaml.toFile(), data_)) return;
             DataClass data = YLFUtils.loadConfig(yaml, path, parseClass, properties, versionCompare, configVersion, backUpDir);
             DataKey id = identifier.identify(yaml.toFile(), data);
-            configs.put(id, ConfigInfo.of(data, yaml));
+            configs.put(id, ConfigInfo.of(id, data, yaml));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load: " + yaml.getFileName(), e);
         }
@@ -143,7 +143,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      *
      * @return future containing a snapshot of all loaded configs
      */
-    public CompletableFuture<HashMap<DataKey, ConfigInfo<DataClass>>> onInit() {
+    public CompletableFuture<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> onInit() {
         return init;
     }
 
@@ -152,7 +152,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      *
      * @return a new HashMap containing all loaded configs
      */
-    public HashMap<DataKey, ConfigInfo<DataClass>> get() {
+    public HashMap<DataKey, ConfigInfo<DataKey, DataClass>> get() {
         return new HashMap<>(configs);
     }
 
@@ -163,7 +163,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      * @return an Optional containing the config, or empty if not found
      */
     public Optional<DataClass> get(DataKey key) {
-        return Optional.ofNullable(configs.get(key)).map(ConfigInfo::getData);
+        return Optional.ofNullable(configs.get(key)).map(ConfigInfo::data);
     }
 
     /**
@@ -172,7 +172,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      * @param key the key identifying the config
      * @return an Optional containing the ConfigInfo, or empty if not found
      */
-    public Optional<ConfigInfo<DataClass>> getInfo(DataKey key) {
+    public Optional<ConfigInfo<DataKey, DataClass>> getInfo(DataKey key) {
         return Optional.ofNullable(configs.get(key));
     }
 
@@ -182,11 +182,11 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      * @param predicate condition to test each config
      * @return list of configs that match the predicate
      */
-    public List<DataClass> getWhere(Predicate<ConfigInfo<DataClass>> predicate) {
+    public List<DataClass> getWhere(Predicate<ConfigInfo<DataKey, DataClass>> predicate) {
         List<DataClass> dataList = new ArrayList<>();
-        for (ConfigInfo<DataClass> config : configs.values())
+        for (ConfigInfo<DataKey, DataClass> config : configs.values())
             if (predicate.test(config))
-                dataList.add(config.getData());
+                dataList.add(config.data());
         return dataList;
     }
 
@@ -198,7 +198,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      * @param name the file name without .yml extension
      * @return the existing or newly created config instance
      */
-    public ConfigInfo<DataClass> create(DataKey key, String name) {
+    public ConfigInfo<DataKey, DataClass> create(DataKey key, String name) {
         Path path = this.path.resolve(name+".yml");
         return configs.computeIfAbsent(key, key_ -> {
             DataClass data = YamlConfigurations.update(path, parseClass, properties);
@@ -206,7 +206,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
                 data.version = configVersion;
                 YamlConfigurations.save(path, parseClass, data, properties);
             }
-            return ConfigInfo.of(data, path);
+            return ConfigInfo.of(key, data, path);
         });
     }
 
@@ -222,7 +222,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
         if (info.isEmpty()) return false;
         configs.remove(key);
         try {
-            Files.delete(info.get().getPath());
+            Files.delete(info.get().path());
             return true;
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -237,9 +237,9 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      */
     public synchronized void save(DataKey key, DataClass data) {
         if (!configs.containsKey(key)) return;
-        Path path = configs.get(key).getPath();
+        Path path = configs.get(key).path();
         YamlConfigurations.save(path, parseClass, data, properties);
-        configs.replace(key, ConfigInfo.of(data, path));
+        configs.replace(key, ConfigInfo.of(key, data, path));
     }
 
     /**
@@ -252,7 +252,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
         try {
             configs.clear();
             load();
-            for (Consumer<HashMap<DataKey, ConfigInfo<DataClass>>> consumer : reload)
+            for (Consumer<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> consumer : reload)
                 consumer.accept(new HashMap<>(configs));
         } catch (IOException e) {
             throw new RuntimeException("Error while reloading configs in '"+path.toString()+"'",e);
@@ -264,7 +264,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      *
      * @param consumer callback receiving a snapshot of all configs after reload
      */
-    public void onReload(Consumer<HashMap<DataKey, ConfigInfo<DataClass>>> consumer) {
+    public void onReload(Consumer<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> consumer) {
         reload.add(consumer);
     }
 

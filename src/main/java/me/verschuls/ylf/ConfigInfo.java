@@ -3,35 +3,15 @@ package me.verschuls.ylf;
 import java.nio.file.Path;
 
 /**
- * Wrapper holding a config's data and its file path.
+ * Wrapper holding a config's data, key and its file path.
  * Used by {@link CMI} to track where each config came from.
  *
  * @param <DataClass> the config data type
  */
-public final class ConfigInfo<DataClass extends BaseData> {
-    private final DataClass data;
-    private final Path path;
+public record ConfigInfo<DataKey, DataClass extends BaseData>(DataKey key, DataClass data, Path path) {
 
-    private ConfigInfo(DataClass data, Path path) {
-        this.data = data;
-        this.path = path;
+    static <DataKey, DataClass extends BaseData> ConfigInfo<DataKey, DataClass> of(DataKey key, DataClass data, Path path) {
+        return new ConfigInfo<>(key, data, path);
     }
 
-    static <DataClass extends BaseData> ConfigInfo<DataClass> of(DataClass data, Path path) {
-        return new ConfigInfo<>(data, path);
-    }
-
-    /**
-     * @return the config data instance
-     */
-    public DataClass getData() {
-        return data;
-    }
-
-    /**
-     * @return path to the config file
-     */
-    public Path getPath() {
-        return path;
-    }
 }
