@@ -39,9 +39,9 @@ import java.util.function.Predicate;
  * @param <DataKey>   key type for identifying configs (e.g., String, UUID, Integer)
  * @param <DataClass> the config data class (must have {@code @Configuration} annotation and extend {@link BaseData})
  * @see CM
- * @see CIdentifier
- * @see CFilter
- * @see CVersion
+ * @see Identifier
+ * @see Filter
+ * @see Version
  */
 public final class CMI<DataKey, DataClass extends BaseData> {
 
@@ -50,8 +50,8 @@ public final class CMI<DataKey, DataClass extends BaseData> {
     private final List<Consumer<HashMap<DataKey, ConfigInfo<DataClass>>>> reload = new CopyOnWriteArrayList<>();
     private final Path path;
     private final Class<DataClass> parseClass;
-    private final CIdentifier<DataKey, DataClass> identifier;
-    private final CFilter<DataClass> filter;
+    private final Identifier<DataKey, DataClass> identifier;
+    private final Filter<DataClass> filter;
     private String configVersion;
     private String backUpDir = "old";
     private VersionCompare versionCompare = VersionCompare.basic();
@@ -59,7 +59,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
     private final YamlConfigurationProperties properties;
 
     /**
-     * Private constructor. Use {@link #newBuilder(Path, Class, CIdentifier)} to create instances.
+     * Private constructor. Use {@link #newBuilder(Path, Class, Identifier)} to create instances.
      *
      * @param builder the builder containing configuration options
      * @throws IOException if directory creation or file loading fails
@@ -74,9 +74,9 @@ public final class CMI<DataKey, DataClass extends BaseData> {
             properties.header(parseClass.getAnnotation(Header.class).value());
         if (parseClass.isAnnotationPresent(Footer.class))
             properties.footer(parseClass.getAnnotation(Footer.class).value());
-        if (parseClass.isAnnotationPresent(CVersion.class)) {
-            configVersion = parseClass.getAnnotation(CVersion.class).value();
-            backUpDir = parseClass.getAnnotation(CVersion.class).backupDir();
+        if (parseClass.isAnnotationPresent(Version.class)) {
+            configVersion = parseClass.getAnnotation(Version.class).value();
+            backUpDir = parseClass.getAnnotation(Version.class).backupDir();
         }
         if (builder.fieldfilter == null)
             properties.setFieldFilter(field -> !(field.getName().equals("version") && configVersion == null));
@@ -104,7 +104,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      * @param <DataClass> the config data class type
      * @return a new builder instance
      */
-    public static <DataKey, DataClass extends BaseData> Builder<DataKey, DataClass> newBuilder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
+    public static <DataKey, DataClass extends BaseData> Builder<DataKey, DataClass> newBuilder(Path path, Class<DataClass> parseClass, Identifier<DataKey, DataClass> identifier) {
         return new Builder<>(path, parseClass, identifier);
     }
 
@@ -211,6 +211,25 @@ public final class CMI<DataKey, DataClass extends BaseData> {
     }
 
     /**
+     * Deletes a config from the manager and removes its file from disk.
+     *
+     * @param key the key identifying the config to delete
+     * @return true if the config was found and deleted, false if no config exists for the key
+     * @throws RuntimeException if the file could not be deleted
+     */
+    public boolean delete(DataKey key) {
+        var info = getInfo(key);
+        if (info.isEmpty()) return false;
+        configs.remove(key);
+        try {
+            Files.delete(info.get().getPath());
+            return true;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Saves a config to disk. Only saves if the key exists in the manager.
      *
      * @param key  the key identifying the config
@@ -272,14 +291,14 @@ public final class CMI<DataKey, DataClass extends BaseData> {
 
         private final Path path;
         private final Class<DataClass> parseClass;
-        private final CIdentifier<DataKey, DataClass> identifier;
-        private CFilter<DataClass> filter = CFilter.none();
+        private final Identifier<DataKey, DataClass> identifier;
+        private Filter<DataClass> filter = Filter.none();
         private VersionCompare versionCompare;
         private Predicate<Field> fieldfilter;
         private Executor executor;
         private final YamlConfigurationProperties.Builder<?> properties = YamlConfigurationProperties.newBuilder();
 
-        private Builder(Path path, Class<DataClass> parseClass, CIdentifier<DataKey, DataClass> identifier) {
+        private Builder(Path path, Class<DataClass> parseClass, Identifier<DataKey, DataClass> identifier) {
             this.path = path;
             this.parseClass = parseClass;
             this.identifier = identifier;
@@ -290,9 +309,9 @@ public final class CMI<DataKey, DataClass extends BaseData> {
          *
          * @param filter the filter to apply (return true to exclude)
          * @return this builder
-         * @see CFilter
+         * @see Filter
          */
-        public Builder<DataKey, DataClass> filter(CFilter<DataClass> filter) {
+        public Builder<DataKey, DataClass> filter(Filter<DataClass> filter) {
             this.filter = filter;
             return this;
         }

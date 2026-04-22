@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @param <T> config type
  */
 @FunctionalInterface
-public interface CIdentifier<K, T> {
+public interface Identifier<K, T> {
 
     /**
      * Generates a key from file and parsed config.
@@ -21,21 +21,21 @@ public interface CIdentifier<K, T> {
     /**
      * Uses file name without extension as key.
      */
-    static <T> CIdentifier<String, T> fileName() {
+    static <T> Identifier<String, T> fileName() {
         return ((file, config) -> file.getName().replaceFirst("\\.(yml|yaml)$", ""));
     }
 
     /**
      * Parses file name as UUID.
      */
-    static <T> CIdentifier<UUID, T> fileNameUUID() {
+    static <T> Identifier<UUID, T> fileNameUUID() {
         return ((file, config) -> UUID.fromString(file.getName().replaceFirst("\\.(yml|yaml)$", "")));
     }
 
     /**
      * Auto-incrementing integer IDs.
      */
-    static <T> CIdentifier<Integer, T> simpleID(AtomicInteger counter) {
+    static <T> Identifier<Integer, T> simpleID(AtomicInteger counter) {
         return ((file, config) -> counter.getAndIncrement());
     }
 }

@@ -17,7 +17,7 @@ Lightweight wrapper for [ConfigLib](https://github.com/Exlll/ConfigLib) with cen
 <dependency>
     <groupId>com.github.verschuls</groupId>
     <artifactId>YamlFlow</artifactId>
-    <version>v1.2.7</version>
+    <version>v1.2.8</version>
 </dependency>
 ```
 
@@ -29,7 +29,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.verschuls:YamlFlow:v1.2.7'
+    implementation 'com.github.verschuls:YamlFlow:v1.2.8'
 }
 ```
 
@@ -180,7 +180,7 @@ public static class Data extends BaseData {
 
 ## Config Versioning
 
-Add automatic version tracking and backup on version mismatch using the `@CVersion` annotation. Works with both `CM` and `CMI`.
+Add automatic version tracking and backup on version mismatch using the `@Version` annotation. Works with both `CM` and `CMI`.
 
 ```java
 public class VersionedConfig extends BaseConfig<VersionedConfig.Data> {
@@ -188,7 +188,7 @@ public class VersionedConfig extends BaseConfig<VersionedConfig.Data> {
         super(dir, "config", Data.class, null);
     }
 
-    @CVersion("1.0.0")
+    @Version("1.0.0")
     public static class Data extends BaseData {
         public String setting = "default";
     }
@@ -196,13 +196,13 @@ public class VersionedConfig extends BaseConfig<VersionedConfig.Data> {
 ```
 
 **Behavior:**
-- On load, the file's `version` field is compared against the `@CVersion` value
+- On load, the file's `version` field is compared against the `@Version` value
 - If versions don't match, the old config is backed up to `old/config-v1.0.0-xxxx.yml`
 - The config is then updated with the new version and default values for new fields
 
 **Custom backup directory:**
 ```java
-@CVersion(value = "1.0.0", backupDir = "backups")
+@Version(value = "1.0.0", backupDir = "backups")
 public static class Data extends BaseData {
     // backups will go to backups/config-vX.X.X-xxxx.yml
 }
@@ -231,9 +231,9 @@ public class PlayerData extends BaseData {
 CMI<String, PlayerData> players = CMI.newBuilder(
         Path.of("./players"),
         PlayerData.class,
-        CIdentifier.fileName()
+        Identifier.fileName()
     )
-    .filter(CFilter.underScores())
+    .filter(Filter.underScores())
     .inputNulls(true)
     .build();
 
@@ -256,16 +256,19 @@ ConfigInfo<PlayerData> newPlayer = players.create("alex", "alex");
 newPlayer.getData().name = "Alex";
 players.save("alex", newPlayer.getData());
 
+// Delete (removes from manager and deletes file from disk)
+boolean deleted = players.delete("alex");
+
 // Reload
 players.reload();
 players.onReload(all -> System.out.println("Reloaded " + all.size() + " players"));
 ```
 
-CMI also supports versioning with `@CVersion`:
+CMI also supports versioning with `@Version`:
 
 ```java
 @Configuration
-@CVersion(value = "2.0", backupDir = "old_players")
+@Version(value = "2.0", backupDir = "old_players")
 public class PlayerData extends BaseData {
     public String name = "Unknown";
     public int level = 1;
@@ -273,7 +276,7 @@ public class PlayerData extends BaseData {
 }
 
 // Custom version comparator for this CMI instance
-CMI<String, PlayerData> players = CMI.newBuilder(Path.of("./players"), PlayerData.class, CIdentifier.fileName())
+CMI<String, PlayerData> players = CMI.newBuilder(Path.of("./players"), PlayerData.class, Identifier.fileName())
     .setVersionCompare((fileVersion, configVersion) -> fileVersion.equals(configVersion))
     .build();
 ```
@@ -282,7 +285,7 @@ CMI<String, PlayerData> players = CMI.newBuilder(Path.of("./players"), PlayerDat
 
 | Method | Description |
 |--------|-------------|
-| `filter(CFilter)` | Exclude files from loading |
+| `filter(Filter)` | Exclude files from loading |
 | `executor(Executor)` | Set executor for async init callback |
 | `setVersionCompare(VersionCompare)` | Custom version comparator (default: `VersionCompare.basic()`) |
 | `inputNulls(boolean)` | Allow null values from YAML |
@@ -293,34 +296,34 @@ CMI<String, PlayerData> players = CMI.newBuilder(Path.of("./players"), PlayerDat
 | `setFieldFilter(Predicate<Field>)` | Control which fields are serialized |
 | `setNameFormatter(NameFormatter)` | Custom field-to-YAML-key naming |
 
-## CIdentifier - Key Strategies
+## Identifier - Key Strategies
 
 Control how configs are identified in CMI:
 
 ```java
 // File name as key: "player.yml" -> "player"
-CIdentifier.fileName()
+Identifier.fileName()
 
 // Parse file name as UUID: "550e8400-e29b-...yml" -> UUID
-CIdentifier.fileNameUUID()
+Identifier.fileNameUUID()
 
 // Auto-increment IDs: 0, 1, 2, ...
-CIdentifier.simpleID(new AtomicInteger())
+Identifier.simpleID(new AtomicInteger())
 
 // Custom logic
 (file, config) -> config.customId
 ```
 
-## CFilter - File Filtering
+## Filter - File Filtering
 
 Filter which files to load:
 
 ```java
 // Load all files
-CFilter.none()
+Filter.none()
 
 // Skip files like "_template_.yml"
-CFilter.underScores()
+Filter.underScores()
 
 // Custom filter (return true to exclude)
 (file, config) -> file.getName().startsWith("backup")
