@@ -61,9 +61,9 @@ public abstract class BaseConfig<T extends BaseData> {
             builder.header(dataClass.getAnnotation(Header.class).value());
         if (dataClass.isAnnotationPresent(Footer.class))
             builder.footer(dataClass.getAnnotation(Footer.class).value());
-        if (dataClass.isAnnotationPresent(CVersion.class)) {
-            configVersion = dataClass.getAnnotation(CVersion.class).value();
-            backUpDir = dataClass.getAnnotation(CVersion.class).backupDir();
+        if (dataClass.isAnnotationPresent(Version.class)) {
+            configVersion = dataClass.getAnnotation(Version.class).value();
+            backUpDir = dataClass.getAnnotation(Version.class).backupDir();
         }
         if (dataClass.isAnnotationPresent(NullPolicy.class)) {
             switch (dataClass.getAnnotation(NullPolicy.class).value()) {

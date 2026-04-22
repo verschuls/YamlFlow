@@ -8,7 +8,7 @@ import java.io.File;
  * @param <T> config type
  */
 @FunctionalInterface
-public interface CFilter<T> {
+public interface Filter<T> {
 
     /**
      * Returns true to exclude this file.
@@ -18,14 +18,14 @@ public interface CFilter<T> {
     /**
      * No filtering - loads all files.
      */
-    static <T> CFilter<T> none() {
+    static <T> Filter<T> none() {
         return ((file, config) -> false);
     }
 
     /**
      * Excludes files matching {@code _name_.yml} pattern.
      */
-    static <T> CFilter<T> underScores() {
+    static <T> Filter<T> underScores() {
         return ((file, config) -> file.getName().startsWith("_") && file.getName().endsWith("_.yml"));
     }
 }

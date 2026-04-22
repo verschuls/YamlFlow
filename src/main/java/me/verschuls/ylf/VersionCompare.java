@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
  * and performs exact equality comparison.</p>
  *
  * @see CM#setVersionComparator(VersionCompare)
- * @see CVersion
+ * @see Version
  */
 @FunctionalInterface
 public interface VersionCompare {
