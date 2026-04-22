@@ -128,7 +128,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
 
     private void loadSingle(Path yaml) {
         try {
-            DataClass data_ = YamlConfigurations.load(yaml, parseClass);
+            DataClass data_ = YamlConfigurations.load(yaml, parseClass, properties);
             if (filter.filter(yaml.toFile(), data_)) return;
             DataClass data = YLFUtils.loadConfig(yaml, path, parseClass, properties, versionCompare, configVersion, backUpDir);
             DataKey id = identifier.identify(yaml.toFile(), data);
