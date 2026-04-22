@@ -17,7 +17,7 @@ Lightweight wrapper for [ConfigLib](https://github.com/Exlll/ConfigLib) with cen
 <dependency>
     <groupId>com.github.verschuls</groupId>
     <artifactId>YamlFlow</artifactId>
-    <version>v1.2.9</version>
+    <version>v1.3.0</version>
 </dependency>
 ```
 
@@ -29,7 +29,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.verschuls:YamlFlow:v1.2.9'
+    implementation 'com.github.verschuls:YamlFlow:v1.3.0'
 }
 ```
 
@@ -239,22 +239,23 @@ CMI<String, PlayerData> players = CMI.newBuilder(
 
 // Access configs
 Optional<PlayerData> player = players.get("steve");
-HashMap<String, ConfigInfo<PlayerData>> all = players.get();
+HashMap<String, ConfigInfo<String, PlayerData>> all = players.get();
 
-// Access config with path info
-Optional<ConfigInfo<PlayerData>> info = players.getInfo("steve");
+// Access config with key, data, and path (ConfigInfo is a record)
+Optional<ConfigInfo<String, PlayerData>> info = players.getInfo("steve");
 info.ifPresent(i -> {
-    System.out.println("Path: " + i.getPath());
-    System.out.println("Name: " + i.getData().name);
+    System.out.println("Key:  " + i.key());
+    System.out.println("Path: " + i.path());
+    System.out.println("Name: " + i.data().name);
 });
 
 // Find configs by condition
-List<PlayerData> highLevel = players.getWhere(info -> info.getData().level > 50);
+List<PlayerData> highLevel = players.getWhere(info -> info.data().level > 50);
 
 // Create & save
-ConfigInfo<PlayerData> newPlayer = players.create("alex", "alex");
-newPlayer.getData().name = "Alex";
-players.save("alex", newPlayer.getData());
+ConfigInfo<String, PlayerData> newPlayer = players.create("alex", "alex");
+newPlayer.data().name = "Alex";
+players.save("alex", newPlayer.data());
 
 // Delete (removes from manager and deletes file from disk)
 boolean deleted = players.delete("alex");
