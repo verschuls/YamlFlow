@@ -17,7 +17,7 @@ Lightweight wrapper for [ConfigLib](https://github.com/Exlll/ConfigLib) with cen
 <dependency>
     <groupId>com.github.verschuls</groupId>
     <artifactId>YamlFlow</artifactId>
-    <version>v1.3.0</version>
+    <version>v1.3.1</version>
 </dependency>
 ```
 
@@ -29,7 +29,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.verschuls:YamlFlow:v1.3.0'
+    implementation 'com.github.verschuls:YamlFlow:v1.3.1'
 }
 ```
 
@@ -152,14 +152,22 @@ public class MessagesConfig extends BaseConfig<MessagesConfig.Data> {
         super(dir, "messages", Data.class, null);
     }
 
-    @ResourceFile
+    // resource: example/config/path/messages.yml
+    @ResourceFile("example/config/path")
     public static class Data extends BaseData {
         public String greeting = "Hello!";
     }
 }
 ```
 
-The config file path is resolved relative to the class loader's resources. If the file doesn't exist on disk, it is copied from the JAR resource before loading.
+The annotation value is the resource **folder** only — the file name is appended automatically from the config name plus `.yml`. Use `/` as separator (resource path, not a file system path) and no leading slash. Pass `""` for a file at the JAR root.
+
+**Behavior:**
+- The copy runs only when the config file doesn't exist on disk yet
+- Missing parent directories are created before copying
+- Missing resource, or no resource loader set, throws `IllegalStateException`
+
+> The whole library uses the `.yml` extension, never `.yaml`.
 
 ## Null Policy
 
@@ -239,7 +247,13 @@ CMI<String, PlayerData> players = CMI.newBuilder(
 
 // Access configs
 Optional<PlayerData> player = players.get("steve");
-HashMap<String, ConfigInfo<String, PlayerData>> all = players.get();
+Map<String, ConfigInfo<String, PlayerData>> all = players.get();
+
+// Same snapshot without the ConfigInfo wrapper
+Map<String, PlayerData> raw = players.getRaw();
+
+// All configs as a list
+List<ConfigInfo<String, PlayerData>> list = players.getInfo();
 
 // Access config with key, data, and path (ConfigInfo is a record)
 Optional<ConfigInfo<String, PlayerData>> info = players.getInfo("steve");

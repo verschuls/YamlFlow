@@ -22,6 +22,8 @@ public final class CM {
     private static VersionCompare versionCompare = VersionCompare.basic();
     private static ClassLoader resourceLoader;
 
+    private CM() {}
+
     /**
      * Sets a custom version comparator for all config version checks.
      *
@@ -37,12 +39,12 @@ public final class CM {
     }
 
     /**
-     * Sets the resource input stream used by configs annotated with {@link ResourceFile}.
+     * Sets the class loader used to read default files for configs annotated with {@link ResourceFile}.
      *
-     * <p>Configs marked with {@code @ResourceFile} will read their default content from this
-     * stream rather than from the file system directly.</p>
+     * <p>Must be set before registering any {@code @ResourceFile} config. Usually the class loader
+     * of the jar holding the bundled defaults, e.g. {@code MyPlugin.class.getClassLoader()}.</p>
      *
-     * @param classLoader the input stream to load resource files from
+     * @param classLoader the class loader to load resource files from
      * @see ResourceFile
      */
     public static void setResourceLoader(ClassLoader classLoader) {
@@ -50,6 +52,8 @@ public final class CM {
     }
 
     static InputStream getResource(String path) {
+        if (resourceLoader == null)
+            throw new IllegalStateException("No resource loader set, call CM.setResourceLoader(ClassLoader) before registering @ResourceFile configs");
         return resourceLoader.getResourceAsStream(path);
     }
 
