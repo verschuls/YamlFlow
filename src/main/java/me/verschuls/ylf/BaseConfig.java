@@ -81,12 +81,16 @@ public abstract class BaseConfig<T extends BaseData> {
         builder.setFieldFilter(field -> !(field.getName().equals("version") && configVersion == null) && fieldFilter().test(field));
         advanced(builder);
         this.properties = builder.build();
-        if (dataClass.isAnnotationPresent(ResourceFile.class)) {
-            try (InputStream stream = CM.getResource(file.toString())) {
-                if (stream != null && Files.notExists(file))
-                    Files.copy(stream, file);
+        if (dataClass.isAnnotationPresent(ResourceFile.class) && Files.notExists(file)) {
+            String resourcePath = YLFUtils.resourcePath(dataClass.getAnnotation(ResourceFile.class).value(), name);
+            try (InputStream stream = CM.getResource(resourcePath)) {
+                if (stream == null)
+                    throw new IllegalStateException("Resource not found for config "+name+": "+resourcePath);
+                Path parent = file.getParent();
+                if (parent != null) Files.createDirectories(parent);
+                Files.copy(stream, file);
             } catch (IOException e) {
-                throw new RuntimeException();
+                throw new RuntimeException("Issue occurred while trying to copy config file '"+name+"' from resource: "+resourcePath, e);
             }
         }
         this.instance = YLFUtils.loadConfig(file, path, dataClass, properties, CM.getVersionCompare(), configVersion, backUpDir);

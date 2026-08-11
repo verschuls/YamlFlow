@@ -11,7 +11,7 @@ import java.util.UUID;
 /**
  * Internal utilities for config loading and versioning.
  */
-public class YLFUtils {
+class YLFUtils {
 
     // Reads version field from yaml file
     private static String getVersion(Path file) throws IOException {
@@ -26,6 +26,14 @@ public class YLFUtils {
             if (version == null) throw new RuntimeException();
             return version.replace("'", "").replace("\"", "");
         }
+    }
+
+    // Builds a classloader resource path from the @ResourceFile folder and the config name
+    static String resourcePath(String folder, String name) {
+        String dir = folder.replace('\\', '/');
+        while (dir.startsWith("/")) dir = dir.substring(1);
+        while (dir.endsWith("/")) dir = dir.substring(0, dir.length()-1);
+        return dir.isEmpty() ? name+".yml" : dir+"/"+name+".yml";
     }
 
     // Returns filename without extension

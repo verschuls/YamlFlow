@@ -17,6 +17,7 @@ import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Instance-based config manager for bulk loading YAML files from a directory.
@@ -46,8 +47,8 @@ import java.util.function.Predicate;
 public final class CMI<DataKey, DataClass extends BaseData> {
 
     private final Map<DataKey, ConfigInfo<DataKey, DataClass>> configs = new ConcurrentHashMap<>();
-    private final CompletableFuture<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> init = new CompletableFuture<>();
-    private final List<Consumer<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>>> reload = new CopyOnWriteArrayList<>();
+    private final CompletableFuture<Map<DataKey, ConfigInfo<DataKey, DataClass>>> init = new CompletableFuture<>();
+    private final List<Consumer<Map<DataKey, ConfigInfo<DataKey, DataClass>>>> reload = new CopyOnWriteArrayList<>();
     private final Path path;
     private final Class<DataClass> parseClass;
     private final Identifier<DataKey, DataClass> identifier;
@@ -143,7 +144,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      *
      * @return future containing a snapshot of all loaded configs
      */
-    public CompletableFuture<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> onInit() {
+    public CompletableFuture<Map<DataKey, ConfigInfo<DataKey, DataClass>>> onInit() {
         return init;
     }
 
@@ -152,8 +153,29 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      *
      * @return a new HashMap containing all loaded configs
      */
-    public HashMap<DataKey, ConfigInfo<DataKey, DataClass>> get() {
+    public Map<DataKey, ConfigInfo<DataKey, DataClass>> get() {
         return new HashMap<>(configs);
+    }
+
+    /**
+     * Returns a snapshot of all loaded configs as plain data, without the {@link ConfigInfo} wrapper.
+     *
+     * @return a new HashMap of key to config data
+     */
+    public Map<DataKey, DataClass> getRaw() {
+        Map<DataKey, DataClass> map = new HashMap<>();
+        for (ConfigInfo<DataKey, DataClass> i : configs.values())
+            map.put(i.key(), i.data());
+        return map;
+    }
+
+    /**
+     * Returns all loaded configs as a list, keeping the {@link ConfigInfo} wrapper.
+     *
+     * @return an immutable list of all config infos
+     */
+    public List<ConfigInfo<DataKey, DataClass>> getInfo() {
+        return configs.values().stream().toList();
     }
 
     /**
@@ -225,7 +247,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
             Files.delete(info.get().path());
             return true;
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Wasn't able to delete config file: "+info.get().path(), e);
         }
     }
 
@@ -252,7 +274,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
         try {
             configs.clear();
             load();
-            for (Consumer<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> consumer : reload)
+            for (Consumer<Map<DataKey, ConfigInfo<DataKey, DataClass>>> consumer : reload)
                 consumer.accept(new HashMap<>(configs));
         } catch (IOException e) {
             throw new RuntimeException("Error while reloading configs in '"+path.toString()+"'",e);
@@ -264,7 +286,7 @@ public final class CMI<DataKey, DataClass extends BaseData> {
      *
      * @param consumer callback receiving a snapshot of all configs after reload
      */
-    public void onReload(Consumer<HashMap<DataKey, ConfigInfo<DataKey, DataClass>>> consumer) {
+    public void onReload(Consumer<Map<DataKey, ConfigInfo<DataKey, DataClass>>> consumer) {
         reload.add(consumer);
     }
 
